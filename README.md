@@ -5,7 +5,7 @@
 - **Backend:** Node.js 20+ / Express 5 / PostgreSQL 14+
 - **Frontend:** Tailwind CSS + Vanilla JS (ES Modules) ไม่ต้อง build
 
-รายละเอียดสถาปัตยกรรม, ER diagram, อัลกอริทึม และ API ทั้งหมดอยู่ที่ [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+รายละเอียดสถาปัตยกรรม, ER diagram, อัลกอริทึม และ API ทั้งหมดอยู่ที่ [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · วิเคราะห์คู่แข่งและแผนปรับปรุงอยู่ที่ [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)
 
 ## ฟีเจอร์
 
