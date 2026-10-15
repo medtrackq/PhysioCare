@@ -20,6 +20,8 @@ const { localToDate, toLocalParts } = require('../time');
 const { getSettings } = require('./settings.service');
 
 const W = { specialty: 0.55, continuity: 0.15, load: 0.15, available: 0.15 };
+// ลำดับระดับคำแนะนำตามแนวทางเวชปฏิบัติ (น้อย = ดีกว่า)
+const REC_RANK_SQL = (col) => `CASE ${col} WHEN 'recommended' THEN 0 WHEN 'optional' THEN 1 WHEN 'insufficient' THEN 2 ELSE 3 END`;
 const round = (n) => Math.round(n * 1000) / 1000;
 
 async function recommend({ patientId, diagnosisIds, startAt, durationMin = 45 }) {
@@ -47,8 +49,9 @@ async function recommend({ patientId, diagnosisIds, startAt, durationMin = 45 })
 
   const therapists = await rankTherapists({ patientId, dxRows, start, end, settings });
   const equipment = await rankEquipment({ dxIds, precautionCodes: precautions.map((p) => p.code), start, end });
+  const interventions = await guidelineInterventions(dxIds);
 
-  return { patient, diagnoses: dxRows, precautions, window: start ? { startAt: start, endAt: end } : null, therapists, equipment };
+  return { patient, diagnoses: dxRows, precautions, window: start ? { startAt: start, endAt: end } : null, therapists, equipment, interventions };
 }
 
 async function rankTherapists({ patientId, dxRows, start, end, settings }) {
@@ -134,12 +137,21 @@ async function rankTherapists({ patientId, dxRows, start, end, settings }) {
 
 async function rankEquipment({ dxIds, precautionCodes, start, end }) {
   if (!dxIds.length) return [];
+  // หลายการวินิจฉัยชี้หมวดเดียวกัน -> ใช้แถวที่ระดับคำแนะนำดีที่สุด (แล้วตาม weight)
   const { rows: cats } = await db.query(
-    `SELECT c.id, c.code, c.name_th, c.name_en, c.modality, c.default_session_minutes,
-            max(dem.weight) AS weight, string_agg(DISTINCT dem.rationale, '; ') AS rationale
-       FROM diagnosis_equipment_map dem JOIN equipment_categories c ON c.id = dem.equipment_category_id
-      WHERE dem.diagnosis_id = ANY($1)
-      GROUP BY c.id ORDER BY max(dem.weight) DESC`, [dxIds]);
+    `SELECT * FROM (
+       SELECT DISTINCT ON (c.id)
+              c.id, c.code, c.name_th, c.name_en, c.modality, c.default_session_minutes,
+              dem.weight, dem.rationale, dem.recommendation, dem.grade,
+              d.icd10_code AS for_icd10,
+              cs.code AS source_code, cs.title AS source_title, cs.organization AS source_org, cs.year AS source_year, cs.url AS source_url
+         FROM diagnosis_equipment_map dem
+         JOIN equipment_categories c ON c.id = dem.equipment_category_id
+         JOIN diagnoses d ON d.id = dem.diagnosis_id
+         LEFT JOIN clinical_sources cs ON cs.id = dem.source_id
+        WHERE dem.diagnosis_id = ANY($1)
+        ORDER BY c.id, ${REC_RANK_SQL('dem.recommendation')}, dem.weight DESC) x
+      ORDER BY ${REC_RANK_SQL('x.recommendation')}, x.weight DESC`, [dxIds]);
   if (!cats.length) return [];
 
   const catIds = cats.map((c) => c.id);
@@ -172,11 +184,18 @@ async function rankEquipment({ dxIds, precautionCodes, start, end }) {
       freeAtRequestedTime: ctx ? avail.isEquipmentFree(ctx, u.id, start.getTime(), end.getTime()) : avail.BOOKABLE_EQUIPMENT_STATUS.has(u.status),
     })).sort((a, b) => b.freeAtRequestedTime - a.freeAtRequestedTime || a.usageHours30d - b.usageHours30d);
 
-    const recommended = absolute.length ? null : list.find((u) => u.freeAtRequestedTime) || null;
+    const notRecommended = c.recommendation === 'not_recommended';
+    const recommended = absolute.length || notRecommended ? null : list.find((u) => u.freeAtRequestedTime) || null;
     return {
       category: { id: c.id, code: c.code, name_th: c.name_th, name_en: c.name_en, modality: c.modality },
       weight: c.weight,
       rationale: c.rationale,
+      guideline: {
+        recommendation: c.recommendation,
+        grade: c.grade,
+        forDiagnosis: c.for_icd10,
+        source: c.source_code ? { code: c.source_code, title: c.source_title, organization: c.source_org, year: c.source_year, url: c.source_url } : null,
+      },
       suggestedMinutes: c.default_session_minutes,
       contraindication: absolute.length
         ? { level: 'absolute', precautions: absolute.map((x) => x.name_th) }
@@ -187,4 +206,20 @@ async function rankEquipment({ dxIds, precautionCodes, start, end }) {
   });
 }
 
-module.exports = { recommend };
+/** วิธีการรักษาที่ไม่ใช่อุปกรณ์ (ออกกำลังกาย, manual therapy, ให้ความรู้ ฯลฯ) ตามแนวทางเวชปฏิบัติ */
+async function guidelineInterventions(dxIds) {
+  if (!dxIds.length) return [];
+  const { rows } = await db.query(
+    `SELECT di.id, d.icd10_code, di.category, di.name_th, di.name_en, di.recommendation, di.grade, di.dosage, di.notes,
+            cs.code AS source_code, cs.title AS source_title, cs.organization AS source_org, cs.year AS source_year, cs.url AS source_url
+       FROM diagnosis_interventions di
+       JOIN diagnoses d ON d.id = di.diagnosis_id
+       LEFT JOIN clinical_sources cs ON cs.id = di.source_id
+      WHERE di.diagnosis_id = ANY($1)
+      ORDER BY array_position($1::int[], di.diagnosis_id), ${REC_RANK_SQL('di.recommendation')}, di.sort_order`, [dxIds]);
+  return rows.map(({ source_code: code, source_title: title, source_org: organization, source_year: year, source_url: url, ...r }) => ({
+    ...r, source: code ? { code, title, organization, year, url } : null,
+  }));
+}
+
+module.exports = { recommend, guidelineInterventions, REC_RANK_SQL };

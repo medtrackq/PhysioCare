@@ -9,6 +9,7 @@ const ROUTES = [
   { path: 'schedule', label: 'ตารางนัดหมาย', icon: '🗓️', perm: ['appointments:read_all'], load: () => import('./views/schedule.js') },
   { path: 'equipment', label: 'อุปกรณ์', icon: '🛠️', perm: ['equipment:read'], load: () => import('./views/equipment.js') },
   { path: 'staff', label: 'บุคลากร & กะ', icon: '👩‍⚕️', perm: ['staff:read'], load: () => import('./views/staff.js') },
+  { path: 'guidelines', label: 'แนวทางการรักษา', icon: '📚', perm: ['patients:read', 'emr:read'], load: () => import('./views/knowledge.js') },
   { path: 'emr', label: 'เวชระเบียน', icon: '📝', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
   { path: 'progress', label: 'ความก้าวหน้า', icon: '📈', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
   { path: 'my', label: 'นัดหมายของฉัน', icon: '🗓️', perm: ['appointments:read_own'], load: () => import('./views/my.js') },

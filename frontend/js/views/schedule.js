@@ -3,6 +3,7 @@ import {
   $, $$, esc, badge, APPT_STATUS, pageHeader, btn, input, modal, toast, showError,
   fmtTime, fmtDateTime, bkkToday, bkkISO,
 } from '../ui.js';
+import { recBadge, sourceLink, interventionsHtml } from './knowledge.js';
 
 const OPEN = 8;
 const CLOSE = 20;
@@ -343,7 +344,10 @@ function openBooking(reload) {
     st.rec = await api.get(`/scheduling/recommendations?patientId=${p.id}&durationMin=${st.duration}`);
     const r = st.rec;
     st.therapistId = r.therapists[0]?.id;
-    st.categoryIds = new Set(r.equipment.filter((e) => !e.contraindication || e.contraindication.level !== 'absolute').slice(0, 2).map((e) => e.category.id));
+    // เลือกล่วงหน้าเฉพาะหมวดที่แนวทางแนะนำ/เสริมได้ และไม่ติดข้อห้ามเด็ดขาด
+    st.categoryIds = new Set(r.equipment
+      .filter((e) => e.contraindication?.level !== 'absolute' && ['recommended', 'optional'].includes(e.guideline.recommendation))
+      .slice(0, 2).map((e) => e.category.id));
     $('#bk-rec', el).classList.remove('hidden');
     $('#bk-rec', el).innerHTML = `
       <div class="text-sm font-medium mb-2">2. คำแนะนำจากการวินิจฉัย
@@ -370,15 +374,20 @@ function openBooking(reload) {
             <label class="flex gap-3 items-start rounded-lg ring-1 ring-inset p-2 ${abs ? 'ring-rose-200 bg-rose-50/50 opacity-70' : 'ring-slate-200 cursor-pointer has-[:checked]:ring-brand-500 has-[:checked]:bg-brand-50'}">
               <input type="checkbox" value="${e.category.id}" data-cat ${abs ? 'disabled' : ''} ${st.categoryIds.has(e.category.id) ? 'checked' : ''} class="mt-1">
               <div class="flex-1 text-sm">
-                <div class="flex justify-between"><span class="font-medium">${esc(e.category.name_th)}</span><span class="text-xs text-slate-500">น้ำหนัก ${Math.round(e.weight * 100)}%</span></div>
-                <div class="text-xs text-slate-500">${esc(e.rationale || '')}</div>
+                <div class="flex flex-wrap items-center gap-1.5"><span class="font-medium">${esc(e.category.name_th)}</span>${recBadge(e.guideline.recommendation, e.guideline.grade)}</div>
+                <div class="text-xs text-slate-500">${esc(e.rationale || '')} ${e.guideline.source ? `<span class="text-[11px]">(${sourceLink(e.guideline.source)})</span>` : ''}</div>
                 ${e.contraindication ? `<div class="text-xs mt-0.5 ${abs ? 'text-rose-700' : 'text-amber-700'}">${abs ? '⛔ ห้ามใช้' : '⚠ ระวัง'}: ${e.contraindication.precautions.map(esc).join(', ')}</div>` : ''}
                 <div class="text-xs text-slate-400">${e.units.filter((u) => ['available', 'in_use'].includes(u.status)).length}/${e.units.length} เครื่องใช้งานได้</div>
               </div>
             </label>`;
           }).join('') || '<div class="text-sm text-slate-400">ไม่มีข้อมูล mapping</div>'}</div>
         </div>
-      </div>`;
+      </div>
+      ${r.interventions?.length ? `
+      <details class="mt-3 rounded-lg ring-1 ring-inset ring-slate-200 p-3" open>
+        <summary class="cursor-pointer text-sm font-medium">📚 แนวทางการรักษาตามหลักฐาน (ไม่ใช้อุปกรณ์) — วางแผนเวลารักษาให้ครอบคลุม</summary>
+        <div class="mt-2 grid md:grid-cols-2 gap-x-6">${interventionsHtml(r.interventions.filter((i) => i.recommendation !== 'not_recommended'), { compact: true })}</div>
+      </details>` : ''}`;
     $$('input[name=th]', el).forEach((i) => i.addEventListener('change', () => { st.therapistId = i.value; findSlots(); }));
     $$('[data-cat]', el).forEach((i) => i.addEventListener('change', () => {
       i.checked ? st.categoryIds.add(Number(i.value)) : st.categoryIds.delete(Number(i.value));

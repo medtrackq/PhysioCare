@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import {
   $, $$, esc, badge, APPT_STATUS, pageHeader, btn, input, toast, showError, fmtDateTime, fmtDate, painColor, card, empty,
 } from '../ui.js';
+import { interventionsHtml, recBadge } from './knowledge.js';
 
 const JOINTS = {
   cervical: ['flexion', 'extension', 'lateral_flexion', 'rotation'],
@@ -47,12 +48,29 @@ export async function render(root, { route, params, session }) {
     </div>`;
 
   renderLastVisit($('#last'), data.lastVisit);
+  if (a.diagnosis_id) renderGuidelineAside($('#last'), a.diagnosis_id);
   renderForm($('#pre'), 'pre', data, canWrite, session, () => render(root, { route, params, session }));
   if (['in_progress', 'completed'].includes(a.status) || data.post) {
     renderForm($('#post'), 'post', data, canWrite, session, () => render(root, { route, params, session }));
   } else {
     $('#post').innerHTML = card(`<div class="p-4 text-sm text-slate-400">Post-Treatment Progress Note จะเปิดให้บันทึกเมื่อเริ่มการรักษา</div>`);
   }
+}
+
+/** แถบอ้างอิงแนวทางการรักษาของการวินิจฉัยในนัดนี้ */
+async function renderGuidelineAside(el, diagnosisId) {
+  try {
+    const d = await api.get(`/knowledge/diagnoses/${diagnosisId}`);
+    el.insertAdjacentHTML('beforeend', card(`
+      <div class="p-4">
+        <div class="flex items-center justify-between mb-2"><span class="font-semibold text-sm">📚 แนวทาง ${esc(d.icd10_code)}</span>
+          <a href="#/guidelines/${d.id}" class="text-xs text-brand-600 hover:underline">ดูทั้งหมด</a></div>
+        ${d.red_flags ? `<div class="mb-2 text-xs rounded bg-rose-50 text-rose-800 px-2 py-1">${esc(d.red_flags)}</div>` : ''}
+        ${interventionsHtml(d.interventions.filter((i) => i.recommendation === 'recommended'), { compact: true })}
+        <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">อุปกรณ์</div>
+        <ul class="space-y-1">${d.equipment.map((e) => `<li class="text-xs flex flex-wrap items-center gap-1">${esc(e.name_th)} ${recBadge(e.recommendation, e.grade)}</li>`).join('')}</ul>
+      </div>`));
+  } catch { /* ไม่มีสิทธิ์/ไม่มีข้อมูล — ข้าม */ }
 }
 
 function renderLastVisit(el, lv) {

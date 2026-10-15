@@ -16,6 +16,7 @@ router.use('/patients', require('./patients.routes'));
 router.use('/emr', require('./emr.routes'));
 router.use('/media', require('./media.routes'));
 router.use('/reports', require('./reports.routes'));
+router.use('/knowledge', require('./knowledge.routes'));
 router.use('/', require('./scheduling.routes'));
 
 module.exports = router;

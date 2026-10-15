@@ -60,6 +60,7 @@ before(async () => {
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   await pool.query(sql('001_schema.sql'));
   await pool.query(sql('002_seed.sql'));
+  await pool.query(sql('004_clinical_guidelines.sql'));
   await sse.startListener();
   server = createApp().listen(0);
   base = `http://127.0.0.1:${server.address().port}`;

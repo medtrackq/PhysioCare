@@ -27,7 +27,7 @@
 ```bash
 # 1) สร้างฐานข้อมูล
 createdb physiocare
-psql physiocare -f db/001_schema.sql -f db/002_seed.sql
+psql physiocare -f db/001_schema.sql -f db/002_seed.sql -f db/004_clinical_guidelines.sql
 psql physiocare -f db/003_demo_appointments.sql   # (ไม่บังคับ) นัดตัวอย่าง ~260 รายการ สำหรับดูปฏิทิน
 
 # 2) รัน API (เสิร์ฟ frontend ให้ด้วย)

@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "db:init": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ../db/001_schema.sql -f ../db/002_seed.sql",
+    "db:init": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ../db/001_schema.sql -f ../db/002_seed.sql -f ../db/004_clinical_guidelines.sql",
     "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "dependencies": {
