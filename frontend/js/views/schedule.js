@@ -7,58 +7,153 @@ import {
 const OPEN = 8;
 const CLOSE = 20;
 const ROW_PX = 28; // 30 นาที
+const DOW_TH = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
+const MODES = [['day', 'วัน'], ['week', 'สัปดาห์'], ['month', 'เดือน']];
+
 let currentDate = bkkToday();
+let mode = 'week';
+const hiddenTherapists = new Set();
+
+// ---------- date helpers (ทุกวันที่เป็นเวลาไทย YYYY-MM-DD) ----------
+const addDays = (date, n) => { const d = new Date(`${date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const mondayOf = (date) => { const d = new Date(`${date}T00:00:00Z`); return addDays(date, -((d.getUTCDay() + 6) % 7)); };
+const localDateOf = (iso) => new Date(new Date(iso).getTime() + 7 * 3600e3).toISOString().slice(0, 10);
+const minuteOf = (iso) => { const t = new Date(new Date(iso).getTime() + 7 * 3600e3); return t.getUTCHours() * 60 + t.getUTCMinutes(); };
+const top = (iso) => ((minuteOf(iso) - OPEN * 60) / 30) * ROW_PX;
+const height = (s, e) => Math.max(ROW_PX - 2, ((new Date(e) - new Date(s)) / 60000 / 30) * ROW_PX - 2);
+const thDate = (date, opts) => new Date(`${date}T12:00:00+07:00`).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', ...opts });
+const isActive = (a) => !['cancelled', 'no_show'].includes(a.status);
+
+function range() {
+  if (mode === 'day') return [currentDate, currentDate];
+  if (mode === 'week') { const m = mondayOf(currentDate); return [m, addDays(m, 6)]; }
+  const first = `${currentDate.slice(0, 8)}01`;
+  const start = mondayOf(first);
+  return [start, addDays(start, 41)]; // 6 สัปดาห์
+}
+
+function label() {
+  const [from, to] = range();
+  if (mode === 'day') return thDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (mode === 'week') return `${thDate(from, { day: 'numeric', month: 'short' })} – ${thDate(to, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  return thDate(currentDate, { month: 'long', year: 'numeric' });
+}
+
+/** จัดนัดที่เวลาซ้อนกัน (คนละนักกายภาพ) ให้อยู่เคียงกันใน lane */
+function layoutLanes(items) {
+  const sorted = [...items].sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+  const clusters = [];
+  let cur = [];
+  let curEnd = 0;
+  for (const it of sorted) {
+    const s = new Date(it.start_at).getTime();
+    if (cur.length && s >= curEnd) { clusters.push(cur); cur = []; curEnd = 0; }
+    cur.push(it);
+    curEnd = Math.max(curEnd, new Date(it.end_at).getTime());
+  }
+  if (cur.length) clusters.push(cur);
+  for (const cl of clusters) {
+    const lanes = [];
+    for (const it of cl) {
+      const s = new Date(it.start_at).getTime();
+      let i = lanes.findIndex((end) => end <= s);
+      if (i === -1) { i = lanes.length; lanes.push(0); }
+      lanes[i] = new Date(it.end_at).getTime();
+      it._lane = i;
+    }
+    cl.forEach((it) => { it._lanes = lanes.length; });
+  }
+  return sorted;
+}
+
+const timeGutter = (rows) => `
+  <div class="relative" style="height:${rows * ROW_PX}px">
+    ${Array.from({ length: rows / 2 }, (_, i) => `<div class="absolute right-1 text-[10px] text-slate-400" style="top:${i * 2 * ROW_PX - 6}px">${String(OPEN + i).padStart(2, '0')}:00</div>`).join('')}
+  </div>`;
+const gridLines = (rows) => Array.from({ length: rows }, (_, i) => `<div class="absolute inset-x-0 border-t ${i % 2 ? 'border-slate-50' : 'border-slate-100'}" style="top:${i * ROW_PX}px"></div>`).join('');
+const nowLine = (date) => {
+  if (date !== bkkToday()) return '';
+  const m = minuteOf(new Date().toISOString());
+  if (m < OPEN * 60 || m > CLOSE * 60) return '';
+  return `<div class="absolute inset-x-0 z-10 border-t-2 border-rose-500" style="top:${((m - OPEN * 60) / 30) * ROW_PX}px"><span class="absolute -left-1 -top-1.5 w-2.5 h-2.5 rounded-full bg-rose-500"></span></div>`;
+};
+
+const apptBlock = (a, style, compact = false) => `
+  <button data-appt="${a.id}" title="${esc(`${fmtTime(a.start_at)}–${fmtTime(a.end_at)} ${a.patient_name} · ${a.therapist_name}`)}"
+    class="absolute rounded-md text-left px-1.5 py-1 text-xs overflow-hidden ring-1 ring-inset ring-black/5 hover:shadow hover:z-20 ${a.status === 'completed' ? 'opacity-60' : ''}"
+    style="${style};background:${esc(a.therapist_color)}22;border-left:3px solid ${esc(a.therapist_color)}">
+    ${compact
+      ? `<div class="font-semibold leading-tight">${fmtTime(a.start_at)}</div><div class="truncate leading-tight">${esc(a.patient_name.split(' ')[0])}</div>`
+      : `<div class="font-semibold truncate">${fmtTime(a.start_at)} ${esc(a.patient_name)}</div>
+    <div class="truncate text-slate-500">${esc(a.icd10_code || '')} ${a.equipment.map((e) => esc(e.asset_code)).join(' ')}</div>
+    <div class="mt-0.5">${badge(APPT_STATUS, a.status)}</div>`}
+  </button>`;
 
 export async function render(root, { session }) {
   root.innerHTML = `
-    ${pageHeader('ตารางนัดหมาย', 'มุมมองรายวันแยกตามนักกายภาพบำบัด',
-      `<input id="sc-date" type="date" class="${input}" value="${currentDate}">
-       ${session.can('appointments:write') ? btn('+ จองนัด', 'id="sc-new"') : ''}`)}
+    ${pageHeader('ตารางนัดหมาย', '', session.can('appointments:write') ? btn('+ จองนัด', 'id="sc-new"') : '')}
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <div class="inline-flex rounded-lg ring-1 ring-inset ring-slate-300 bg-white overflow-hidden" role="tablist">
+        ${MODES.map(([k, l]) => `<button data-mode="${k}" class="px-3 py-1.5 text-sm">${l}</button>`).join('')}
+      </div>
+      <div class="inline-flex gap-1">${btn('‹', 'data-nav="-1" aria-label="ก่อนหน้า"', 'ghost')}${btn('วันนี้', 'data-nav="0"', 'ghost')}${btn('›', 'data-nav="1" aria-label="ถัดไป"', 'ghost')}</div>
+      <div id="sc-label" class="font-semibold text-lg ml-1"></div>
+      <input id="sc-date" type="date" class="${input} max-w-[170px] ml-auto" value="${currentDate}">
+    </div>
+    <div id="sc-legend" class="flex flex-wrap gap-2 mb-3"></div>
     <div id="sc-grid" class="bg-white rounded-xl border border-slate-200 overflow-x-auto"></div>`;
 
+  let staff = [];
   const load = async () => {
-    const from = bkkISO(currentDate, '00:00');
-    const to = bkkISO(currentDate, '23:59');
-    const [staff, appts, shifts] = await Promise.all([
-      api.get('/staff?position=physiotherapist'),
-      api.get(`/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
-      api.get(`/staff/shifts?from=${currentDate}&to=${currentDate}`),
+    const [from, to] = range();
+    $('#sc-label').textContent = label();
+    $('#sc-date').value = currentDate;
+    $$('[data-mode]').forEach((b) => { b.className = `px-3 py-1.5 text-sm ${b.dataset.mode === mode ? 'bg-brand-600 text-white' : 'hover:bg-slate-50'}`; });
+    const [st, appts, shifts] = await Promise.all([
+      staff.length ? staff : api.get('/staff?position=physiotherapist'),
+      api.get(`/appointments?from=${encodeURIComponent(bkkISO(from, '00:00'))}&to=${encodeURIComponent(bkkISO(to, '23:59'))}`),
+      mode === 'day' ? api.get(`/staff/shifts?from=${from}&to=${to}`) : null,
     ]);
-    drawGrid(staff.filter((s) => s.is_active), appts, shifts);
+    staff = st.filter((s) => s.is_active);
+    renderLegend(appts);
+    const visible = appts.filter((a) => !hiddenTherapists.has(a.therapist_id));
+    if (mode === 'day') drawDay(staff.filter((s) => !hiddenTherapists.has(s.id)), visible, shifts);
+    else if (mode === 'week') drawWeek(visible, from);
+    else drawMonth(visible, from);
+    $$('[data-appt]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openAppointment(b.dataset.appt, session, load); }));
   };
 
-  const drawGrid = (staff, appts, { shifts, leaves }) => {
+  const renderLegend = (appts) => {
+    $('#sc-legend').innerHTML = staff.map((s) => {
+      const n = appts.filter((a) => a.therapist_id === s.id && isActive(a)).length;
+      const off = hiddenTherapists.has(s.id);
+      return `<button data-th="${s.id}" class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ring-1 ring-inset ${off ? 'ring-slate-200 text-slate-400 line-through' : 'ring-slate-300 bg-white'}">
+        <span class="w-2.5 h-2.5 rounded-full" style="background:${off ? '#cbd5e1' : esc(s.color)}"></span>${esc(s.title || '')}${esc(s.first_name)}
+        <span class="text-slate-400">${s.specialties.map((x) => esc(x.code)).join('/')}</span><b>${n}</b></button>`;
+    }).join('');
+  };
+
+  // ---------- Day: คอลัมน์ต่อนักกายภาพ + แถบนอกกะ/วันลา ----------
+  const drawDay = (cols, appts, { shifts, leaves }) => {
     const rows = (CLOSE - OPEN) * 2;
-    const minuteOf = (d) => { const t = new Date(new Date(d).getTime() + 7 * 3600e3); return t.getUTCHours() * 60 + t.getUTCMinutes(); };
-    const top = (d) => ((minuteOf(d) - OPEN * 60) / 30) * ROW_PX;
-    const height = (s, e) => Math.max(ROW_PX - 2, ((new Date(e) - new Date(s)) / 60000 / 30) * ROW_PX - 2);
     $('#sc-grid').innerHTML = `
-      <div class="grid min-w-[720px]" style="grid-template-columns: 56px repeat(${staff.length}, minmax(160px, 1fr))">
+      <div class="grid min-w-[720px]" style="grid-template-columns: 56px repeat(${cols.length}, minmax(160px, 1fr))">
         <div class="border-b border-slate-200"></div>
-        ${staff.map((s) => `<div class="border-b border-l border-slate-200 px-2 py-2 text-sm font-medium flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:${esc(s.color)}"></span>${esc(s.title || '')}${esc(s.first_name)}
+        ${cols.map((s) => `<div class="border-b border-l border-slate-200 px-2 py-2 text-sm font-medium flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:${esc(s.color)}"></span>${esc(s.title || '')}${esc(s.first_name)}
           <span class="text-xs text-slate-400 font-normal">${s.specialties.map((x) => esc(x.code)).join(', ')}</span></div>`).join('')}
-        <div class="relative" style="height:${rows * ROW_PX}px">
-          ${Array.from({ length: rows / 2 }, (_, i) => `<div class="absolute right-1 text-[10px] text-slate-400" style="top:${i * 2 * ROW_PX - 6}px">${String(OPEN + i).padStart(2, '0')}:00</div>`).join('')}
-        </div>
-        ${staff.map((s) => `
+        ${timeGutter(rows)}
+        ${cols.map((s) => `
           <div class="relative border-l border-slate-200" style="height:${rows * ROW_PX}px">
-            ${Array.from({ length: rows }, (_, i) => `<div class="absolute inset-x-0 border-t ${i % 2 ? 'border-slate-50' : 'border-slate-100'}" style="top:${i * ROW_PX}px"></div>`).join('')}
-            ${offShiftBlocks(shifts.filter((x) => x.staff_id === s.id), top)}
+            ${gridLines(rows)}
+            ${offShiftBlocks(shifts.filter((x) => x.staff_id === s.id))}
             ${leaves.filter((l) => l.staff_id === s.id).map((l) => `<div class="absolute inset-x-0 bg-rose-50/80 text-[10px] text-rose-500 p-1" style="top:${Math.max(0, top(l.start_at))}px;height:${Math.min(rows * ROW_PX, height(l.start_at, l.end_at))}px">ลา (${esc(l.leave_type)})</div>`).join('')}
-            ${appts.filter((a) => a.therapist_id === s.id && !['cancelled', 'no_show'].includes(a.status)).map((a) => `
-              <button data-appt="${a.id}" class="absolute left-1 right-1 rounded-md text-left px-1.5 py-1 text-xs overflow-hidden ring-1 ring-inset ring-black/5 hover:shadow"
-                style="top:${top(a.start_at) + 1}px;height:${height(a.start_at, a.end_at)}px;background:${esc(a.therapist_color)}22;border-left:3px solid ${esc(a.therapist_color)}">
-                <div class="font-semibold truncate">${fmtTime(a.start_at)} ${esc(a.patient_name)}</div>
-                <div class="truncate text-slate-500">${esc(a.icd10_code || '')} ${a.equipment.map((e) => esc(e.asset_code)).join(' ')}</div>
-                <div class="mt-0.5">${badge(APPT_STATUS, a.status)}</div>
-              </button>`).join('')}
+            ${nowLine(currentDate)}
+            ${appts.filter((a) => a.therapist_id === s.id && isActive(a)).map((a) => apptBlock(a, `left:4px;right:4px;top:${top(a.start_at) + 1}px;height:${height(a.start_at, a.end_at)}px`)).join('')}
           </div>`).join('')}
       </div>`;
-    $$('[data-appt]').forEach((b) => b.addEventListener('click', () => openAppointment(b.dataset.appt, session, load)));
   };
 
-  const offShiftBlocks = (shifts, top) => {
-    // ระบายสีเทาช่วงที่ไม่อยู่ในกะ
+  const offShiftBlocks = (shifts) => {
     const total = (CLOSE - OPEN) * 2 * ROW_PX;
     const spans = shifts.map((s) => [Math.max(0, top(s.start_at)), Math.min(total, top(s.end_at))]).sort((a, b) => a[0] - b[0]);
     const out = [];
@@ -68,10 +163,85 @@ export async function render(root, { session }) {
     return out.map(([a, b]) => `<div class="absolute inset-x-0 bg-slate-100/70" style="top:${a}px;height:${b - a}px" title="นอกกะ"></div>`).join('');
   };
 
-  $('#sc-date').addEventListener('change', (e) => { currentDate = e.target.value; load(); });
+  // ---------- Week: 7 วัน, นัดที่ซ้อนเวลาถูกวางเคียงกัน ----------
+  const drawWeek = (appts, monday) => {
+    const rows = (CLOSE - OPEN) * 2;
+    const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+    $('#sc-grid').innerHTML = `
+      <div class="grid min-w-[860px]" style="grid-template-columns: 56px repeat(7, minmax(110px, 1fr))">
+        <div class="border-b border-slate-200"></div>
+        ${days.map((d, i) => {
+          const n = appts.filter((a) => localDateOf(a.start_at) === d && isActive(a)).length;
+          const today = d === bkkToday();
+          return `<button data-goday="${d}" class="border-b border-l border-slate-200 px-2 py-2 text-left hover:bg-slate-50">
+            <div class="text-xs ${today ? 'text-brand-700 font-semibold' : 'text-slate-500'}">${DOW_TH[i]}</div>
+            <div class="flex items-baseline justify-between"><span class="text-xl font-bold ${today ? 'text-brand-700' : ''}">${Number(d.slice(8))}</span>
+            ${n ? `<span class="text-[11px] text-slate-500">${n} นัด</span>` : ''}</div></button>`;
+        }).join('')}
+        ${timeGutter(rows)}
+        ${days.map((d, i) => `
+          <div class="relative border-l border-slate-200 ${i === 6 ? 'bg-slate-50/60' : ''}" style="height:${rows * ROW_PX}px">
+            ${gridLines(rows)}
+            ${nowLine(d)}
+            ${layoutLanes(appts.filter((a) => localDateOf(a.start_at) === d && isActive(a))).map((a) =>
+              apptBlock(a, `left:calc(${(a._lane / a._lanes) * 100}% + 2px);width:calc(${100 / a._lanes}% - 4px);top:${top(a.start_at) + 1}px;height:${height(a.start_at, a.end_at)}px`, a._lanes > 1)).join('')}
+          </div>`).join('')}
+      </div>`;
+  };
+
+  // ---------- Month: 6×7 cells ----------
+  const drawMonth = (appts, start) => {
+    const month = currentDate.slice(0, 7);
+    const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
+    $('#sc-grid').innerHTML = `
+      <div class="min-w-[760px]">
+        <div class="grid grid-cols-7 border-b border-slate-200">${DOW_TH.map((d) => `<div class="px-2 py-2 text-xs font-medium text-slate-500">${d}</div>`).join('')}</div>
+        <div class="grid grid-cols-7">
+          ${days.map((d) => {
+            const list = appts.filter((a) => localDateOf(a.start_at) === d && isActive(a)).sort((a, b) => new Date(a.start_at) - new Date(b.start_at));
+            const inMonth = d.startsWith(month);
+            const today = d === bkkToday();
+            return `<div data-goday="${d}" class="min-h-[112px] border-b border-l border-slate-100 p-1.5 cursor-pointer hover:bg-slate-50 ${inMonth ? '' : 'bg-slate-50/70'}">
+              <div class="flex items-center justify-between mb-1">
+                <span class="inline-grid place-items-center w-6 h-6 rounded-full text-xs ${today ? 'bg-brand-600 text-white font-semibold' : inMonth ? 'text-slate-700' : 'text-slate-300'}">${Number(d.slice(8))}</span>
+                ${list.length ? `<span class="text-[10px] text-slate-400">${list.length} นัด</span>` : ''}
+              </div>
+              ${list.slice(0, 3).map((a) => `
+                <button data-appt="${a.id}" class="w-full flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-left truncate hover:bg-white ${a.status === 'completed' ? 'opacity-60' : ''}">
+                  <span class="w-1.5 h-1.5 shrink-0 rounded-full" style="background:${esc(a.therapist_color)}"></span>
+                  <span class="text-slate-500">${fmtTime(a.start_at)}</span><span class="truncate">${esc(a.patient_name.split(' ')[0])}</span>
+                </button>`).join('')}
+              ${list.length > 3 ? `<div class="text-[11px] text-brand-600 px-1">+${list.length - 3} เพิ่มเติม</div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  };
+
+  // ---------- Controls ----------
+  root.addEventListener('click', (e) => {
+    const m = e.target.closest('[data-mode]');
+    if (m) { mode = m.dataset.mode; load(); return; }
+    const n = e.target.closest('[data-nav]');
+    if (n) {
+      const dir = Number(n.dataset.nav);
+      if (dir === 0) currentDate = bkkToday();
+      else if (mode === 'day') currentDate = addDays(currentDate, dir);
+      else if (mode === 'week') currentDate = addDays(currentDate, 7 * dir);
+      else { const d = new Date(`${currentDate.slice(0, 8)}01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + dir); currentDate = d.toISOString().slice(0, 10); }
+      load();
+      return;
+    }
+    const th = e.target.closest('[data-th]');
+    if (th) { hiddenTherapists.has(th.dataset.th) ? hiddenTherapists.delete(th.dataset.th) : hiddenTherapists.add(th.dataset.th); load(); return; }
+    const day = e.target.closest('[data-goday]');
+    if (day && !e.target.closest('[data-appt]')) { currentDate = day.dataset.goday; mode = 'day'; load(); }
+  });
+  $('#sc-date').addEventListener('change', (e) => { if (e.target.value) { currentDate = e.target.value; load(); } });
   $('#sc-new')?.addEventListener('click', () => openBooking(load));
 
-  const onLive = (e) => { if (bkkToday() === currentDate || e.detail.start_at?.startsWith?.(currentDate)) load(); };
+  let t;
+  const onLive = () => { clearTimeout(t); t = setTimeout(load, 300); };
   window.addEventListener('appointment_changed', onLive);
   await load();
   return () => window.removeEventListener('appointment_changed', onLive);
