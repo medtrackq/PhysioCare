@@ -139,6 +139,31 @@ describe('Recommendation engine', () => {
   });
 });
 
+describe('Clinical guideline knowledge base', () => {
+  test('LBP: guideline-rejected modalities are not recommended, heat is', async () => {
+    const r = await api('GET', `/api/scheduling/recommendations?patientId=${PAT.prasert}`, { token: tokens.front });
+    const traction = r.body.equipment.find((e) => e.category.code === 'TRACTION');
+    assert.equal(traction.guideline.recommendation, 'not_recommended');
+    assert.equal(traction.recommendedUnit, null);
+    assert.equal(traction.guideline.source.code, 'NICE-NG59');
+    const heat = r.body.equipment.find((e) => e.category.code === 'HOTPACK');
+    assert.equal(heat.guideline.recommendation, 'recommended');
+    assert.ok(heat.recommendedUnit);
+    assert.ok(r.body.interventions.some((i) => i.category === 'exercise' && i.recommendation === 'recommended'));
+  });
+
+  test('knowledge endpoint returns interventions, equipment, red flags and sources', async () => {
+    const list = await api('GET', '/api/knowledge/diagnoses', { token: tokens.somchai });
+    assert.equal(list.status, 200);
+    const pd = list.body.find((d) => d.icd10_code === 'G20');
+    const r = await api('GET', `/api/knowledge/diagnoses/${pd.id}`, { token: tokens.somchai });
+    assert.ok(r.body.red_flags);
+    assert.ok(r.body.interventions.find((i) => i.name_en === 'Aerobic exercise').dosage);
+    assert.ok(r.body.sources.some((s) => s.code === 'APTA-PD-2022'));
+    assert.equal((await api('GET', '/api/knowledge/diagnoses', { token: tokens.patient })).status, 403);
+  });
+});
+
 describe('Smart scheduling & conflict resolution', () => {
   let apptA;
 

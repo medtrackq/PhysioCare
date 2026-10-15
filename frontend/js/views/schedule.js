@@ -374,7 +374,7 @@ function openBooking(reload) {
             <label class="flex gap-3 items-start rounded-lg ring-1 ring-inset p-2 ${abs ? 'ring-rose-200 bg-rose-50/50 opacity-70' : 'ring-slate-200 cursor-pointer has-[:checked]:ring-brand-500 has-[:checked]:bg-brand-50'}">
               <input type="checkbox" value="${e.category.id}" data-cat ${abs ? 'disabled' : ''} ${st.categoryIds.has(e.category.id) ? 'checked' : ''} class="mt-1">
               <div class="flex-1 text-sm">
-                <div class="flex flex-wrap items-center gap-1.5"><span class="font-medium">${esc(e.category.name_th)}</span>${recBadge(e.guideline.recommendation, e.guideline.grade)}</div>
+                <div class="flex flex-wrap items-center gap-1.5"><span class="font-medium">${esc(e.category.name_th)}</span>${recBadge(e.guideline.recommendation, e.guideline.grade)}${r.diagnoses.length > 1 && e.guideline.forDiagnosis ? `<span class="text-[11px] text-slate-500">สำหรับ ${esc(e.guideline.forDiagnosis)}</span>` : ''}</div>
                 <div class="text-xs text-slate-500">${esc(e.rationale || '')} ${e.guideline.source ? `<span class="text-[11px]">(${sourceLink(e.guideline.source)})</span>` : ''}</div>
                 ${e.contraindication ? `<div class="text-xs mt-0.5 ${abs ? 'text-rose-700' : 'text-amber-700'}">${abs ? '⛔ ห้ามใช้' : '⚠ ระวัง'}: ${e.contraindication.precautions.map(esc).join(', ')}</div>` : ''}
                 <div class="text-xs text-slate-400">${e.units.filter((u) => ['available', 'in_use'].includes(u.status)).length}/${e.units.length} เครื่องใช้งานได้</div>
