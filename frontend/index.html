@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PhysioCare</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231474bf'/%3E%3Cpath d='M9 16h14M16 9v14' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['"IBM Plex Sans Thai"', 'system-ui', 'sans-serif'] },
+          colors: { brand: { 50: '#eff8ff', 100: '#dbeefe', 500: '#1d8fe0', 600: '#1474bf', 700: '#125d99' } },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    body { background: #f4f6f9; }
+    .flash { animation: flash 1.2s ease-out; }
+    @keyframes flash { 0% { box-shadow: 0 0 0 4px rgba(29,143,224,.55); } 100% { box-shadow: 0 0 0 0 rgba(29,143,224,0); } }
+    input[type=range].pain { accent-color: var(--pain-color, #1d8fe0); }
+  </style>
+</head>
+<body class="font-sans text-slate-800 antialiased">
+  <!-- Login -->
+  <section id="login-view" class="hidden min-h-screen grid place-items-center px-4">
+    <form id="login-form" class="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-5">
+      <div>
+        <div class="text-2xl font-bold text-brand-700">PhysioCare</div>
+        <p class="text-sm text-slate-500">ระบบบริหารจัดการห้องกายภาพบำบัด</p>
+      </div>
+      <label class="block">
+        <span class="text-sm font-medium">อีเมล</span>
+        <input name="email" type="email" required autocomplete="username" class="mt-1 w-full rounded-lg border-slate-300 border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" value="somchai@physiocare.local">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">รหัสผ่าน</span>
+        <input name="password" type="password" required autocomplete="current-password" class="mt-1 w-full rounded-lg border-slate-300 border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500" value="Passw0rd!">
+      </label>
+      <p id="login-error" class="text-sm text-rose-600 hidden"></p>
+      <button class="w-full rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5">เข้าสู่ระบบ</button>
+      <details class="text-xs text-slate-500">
+        <summary class="cursor-pointer">บัญชีทดลอง (รหัสผ่าน Passw0rd!)</summary>
+        <ul class="mt-2 space-y-1 font-mono">
+          <li>admin@physiocare.local — Admin</li>
+          <li>somchai@physiocare.local — นักกายภาพ</li>
+          <li>front@physiocare.local — เจ้าหน้าที่</li>
+          <li>patient@physiocare.local — ผู้ป่วย</li>
+        </ul>
+      </details>
+    </form>
+  </section>
+
+  <!-- App shell -->
+  <div id="app-view" class="hidden min-h-screen lg:flex">
+    <aside class="lg:w-60 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 lg:min-h-screen flex lg:flex-col">
+      <div class="px-5 py-4 font-bold text-brand-700 text-lg whitespace-nowrap">PhysioCare</div>
+      <nav id="nav" class="flex lg:flex-col gap-1 px-2 pb-2 overflow-x-auto"></nav>
+      <div class="hidden lg:block mt-auto p-4 border-t border-slate-100 text-sm">
+        <div id="me-name" class="font-medium"></div>
+        <div id="me-role" class="text-slate-500 text-xs"></div>
+        <div class="flex items-center gap-2 mt-2 text-xs text-slate-500"><span id="live-dot" class="w-2 h-2 rounded-full bg-slate-300"></span><span id="live-text">offline</span></div>
+        <button id="logout" class="mt-3 text-rose-600 text-xs hover:underline">ออกจากระบบ</button>
+      </div>
+    </aside>
+    <main id="view" class="flex-1 p-4 lg:p-8 min-w-0"></main>
+  </div>
+
+  <div id="modal-root"></div>
+  <div id="toast-root" class="fixed bottom-4 right-4 space-y-2 z-50"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

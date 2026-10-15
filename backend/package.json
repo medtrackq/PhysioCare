@@ -1,0 +1,24 @@
+{
+  "name": "physiocare-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PhysioCare Management System — REST API",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:init": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ../db/001_schema.sql -f ../db/002_seed.sql",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "express": "5.1.0",
+    "helmet": "8.1.0",
+    "jsonwebtoken": "9.0.2",
+    "multer": "2.0.2",
+    "pg": "8.16.3",
+    "zod": "3.25.76"
+  }
+}
