@@ -48,9 +48,11 @@ flowchart LR
 physiocare/
 ├── db/
 │   ├── 001_schema.sql        # ตาราง, constraint, trigger, view
-│   ├── 002_seed.sql          # ข้อมูลอ้างอิง + ข้อมูลตัวอย่าง
-│   ├── 003_demo_appointments.sql  # นัดตัวอย่าง (ไม่บังคับ)
-│   └── 004_clinical_guidelines.sql # ฐานความรู้ตามแนวทางเวชปฏิบัติ
+│   ├── 002_reference_data.sql      # ข้อมูลอ้างอิง (บทบาท, ICD-10, หมวดอุปกรณ์, ข้อห้ามใช้)
+│   ├── 003_clinical_guidelines.sql # ฐานความรู้ตามแนวทางเวชปฏิบัติ (@repeatable)
+│   └── demo/                       # ข้อมูลทดลอง — ห้ามใช้ใน production
+├── deploy/                   # docker-compose, Caddyfile (HTTPS), backup.sh
+├── Dockerfile
 ├── backend/
 │   ├── src/
 │   │   ├── app.js / server.js
@@ -205,7 +207,7 @@ continuity    = จำนวนครั้งที่เคยรักษา�
 ตัวอย่างจากข้อมูลทดสอบ: ผู้ป่วย Stroke (I63.9) ที่ใส่ pacemaker และเสี่ยงล้ม
 → แนะนำ กภ.สุภาพร (Neuro 5/5) คะแนน 85%, ราวคู่ฝึกเดิน, เตียงปรับยืน (⚠ เสี่ยงล้ม), ไม่แนะนำ NMES (⛔ pacemaker)
 
-### 4.1 ฐานความรู้ตามแนวทางเวชปฏิบัติ (`db/004_clinical_guidelines.sql`)
+### 4.1 ฐานความรู้ตามแนวทางเวชปฏิบัติ (`db/003_clinical_guidelines.sql`)
 
 | ตาราง | เนื้อหา |
 |---|---|
@@ -221,7 +223,7 @@ continuity    = จำนวนครั้งที่เคยรักษา�
 - เกรดเป็นไปตามระบบของแต่ละองค์กร (JOSPT A–F, NICE offer/consider/do not offer, AHA COR/LOE, Novak traffic light) จึงเปรียบเทียบข้ามองค์กรตรง ๆ ไม่ได้
 - ข้อจำกัดที่ทราบ: เกรดของ rotator cuff (JOSPT 2025) มาจากบทสรุปทุติยภูมิ, plantar fasciitis (JOSPT 2023) มาจากร่างก่อนตีพิมพ์, บางรายการของ AHA 2026 และ NICE NG236 มาจากแหล่งทุติยภูมิ — ควรตรวจกับฉบับเต็ม
 
-> ⚠ ฐานความรู้นี้เป็นเครื่องมือช่วยตัดสินใจ ไม่ใช่คำสั่งการรักษา คณะทำงานวิชาการของคลินิกควรทบทวนก่อนใช้งานจริงและทบทวนซ้ำเมื่อแนวทางฉบับใหม่ออก ค่า weight ความเชี่ยวชาญและกฎข้อห้ามใน `002_seed.sql` ยังเป็นค่าตัวอย่าง
+> ⚠ ฐานความรู้นี้เป็นเครื่องมือช่วยตัดสินใจ ไม่ใช่คำสั่งการรักษา คณะทำงานวิชาการของคลินิกควรทบทวนก่อนใช้งานจริงและทบทวนซ้ำเมื่อแนวทางฉบับใหม่ออก ค่า weight ความเชี่ยวชาญและกฎข้อห้ามใน `002_reference_data.sql` ยังเป็นค่าตัวอย่าง
 
 ## 5. EMR & Clinical Assessment
 
@@ -306,10 +308,13 @@ continuity    = จำนวนครั้งที่เคยรักษา�
 
 ## 11. แนวทางต่อยอดสู่ Production
 
+ขั้นตอน deploy ปัจจุบัน (Docker Compose + Caddy + backup) อยู่ที่ [DEPLOYMENT.md](DEPLOYMENT.md)
+
+
 - **Build Tailwind** ด้วย Tailwind CLI แทน Play CDN และ self-host Chart.js
 - **Refresh token / session revocation** และ MFA สำหรับบทบาทที่เข้าถึง EMR
 - **Storage** ย้ายไป S3/MinIO + presigned URL, สร้าง thumbnail (sharp) และสแกนไวรัส
-- **Migration tool** (node-pg-migrate / Flyway) แทนการรันไฟล์ SQL ตรง
+- **Migration:** มีตัวรัน `backend/scripts/migrate.js` แล้ว (บันทึกใน `schema_migrations`) — ถ้าทีมใหญ่ขึ้นและต้องการ down migration ให้พิจารณา node-pg-migrate / Flyway
 - **Notification**: เตือนนัดผ่าน LINE/SMS ด้วย job queue (pg-boss) และรับ event จาก `appointment_changed`
 - **Rooms/Beds** เป็น resource ที่ 4 ใช้รูปแบบเดียวกับ `appointment_equipment` (EXCLUDE constraint)
 - **Integration** กับ HIS ผ่าน HL7 FHIR (`Appointment`, `Observation` สำหรับ pain/ROM, `Procedure`)

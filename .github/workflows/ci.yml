@@ -32,3 +32,15 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/physiocare_test
           JWT_SECRET: ci-secret
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t physiocare:ci .
+      - name: Validate compose file
+        working-directory: deploy
+        run: |
+          printf 'DOMAIN=localhost\nPOSTGRES_PASSWORD=ci\nJWT_SECRET=ci\n' > .env
+          docker compose config -q

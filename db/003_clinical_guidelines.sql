@@ -1,8 +1,9 @@
 -- =====================================================================
 -- PhysioCare — Evidence-based clinical knowledge base
+-- @repeatable  (ตัวรัน migration จะรันไฟล์นี้ซ้ำอัตโนมัติเมื่อเนื้อหาเปลี่ยน)
 -- แนวทางการรักษาทางกายภาพบำบัดตามแนวทางเวชปฏิบัติ (CPG) ต่อการวินิจฉัย
 --
--- * รันต่อจาก 001_schema.sql และ 002_seed.sql (idempotent: รันซ้ำได้)
+-- * รันต่อจาก 001_schema.sql และ 002_reference_data.sql (idempotent: รันซ้ำได้)
 -- * แทนที่ข้อมูลตัวอย่าง diagnosis_equipment_map เดิมด้วยข้อมูลที่อ้างอิงแนวทาง
 -- * recommendation:
 --     recommended      แนวทางแนะนำให้ใช้

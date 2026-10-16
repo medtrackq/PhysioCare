@@ -5,12 +5,16 @@
   "description": "PhysioCare Management System — REST API",
   "main": "src/server.js",
   "type": "commonjs",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "db:init": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f ../db/001_schema.sql -f ../db/002_seed.sql -f ../db/004_clinical_guidelines.sql",
-    "test": "node --test --test-concurrency=1 test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "migrate": "node scripts/migrate.js",
+    "migrate:demo": "node scripts/migrate.js --demo",
+    "create-admin": "node scripts/create-admin.js"
   },
   "dependencies": {
     "bcryptjs": "3.0.3",

@@ -7,11 +7,19 @@ const { validate } = require('../middleware/validate');
 const { authenticate, signToken } = require('../middleware/auth');
 const { unauthorized, AppError } = require('../errors');
 const { audit } = require('../services/audit.service');
+const { rateLimit } = require('../middleware/rateLimit');
+
+// กันการเดารหัสผ่านแบบไล่หลายบัญชีจาก IP เดียว (นอกเหนือจากการล็อกรายบัญชี)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.LOGIN_RATE_LIMIT || 30),
+  message: 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณาลองใหม่ใน 15 นาที',
+});
 
 const cookieOpts = (maxAge) =>
   `Path=/api; HttpOnly; SameSite=Strict${process.env.NODE_ENV === 'production' ? '; Secure' : ''}; Max-Age=${maxAge}`;
 
-router.post('/login', validate({ body: z.object({ email: z.string().email(), password: z.string().min(1) }) }), async (req, res) => {
+router.post('/login', loginLimiter, validate({ body: z.object({ email: z.string().email(), password: z.string().min(1) }) }), async (req, res) => {
   const { email, password } = req.valid.body;
   const { rows: [u] } = await db.query(
     `SELECT u.*, r.code AS role FROM users u JOIN roles r ON r.id = u.role_id WHERE lower(u.email) = lower($1)`, [email]);

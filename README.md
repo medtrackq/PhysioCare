@@ -25,19 +25,33 @@
 
 ต้องมี Node.js 20 ขึ้นไป และ PostgreSQL 14 ขึ้นไป
 
-```bash
-# 1) สร้างฐานข้อมูล
-createdb physiocare
-psql physiocare -f db/001_schema.sql -f db/002_seed.sql -f db/004_clinical_guidelines.sql
-psql physiocare -f db/003_demo_appointments.sql   # (ไม่บังคับ) นัดตัวอย่าง ~260 รายการ สำหรับดูปฏิทิน
+### ทดลองบนเครื่องตัวเอง (มีข้อมูลตัวอย่าง)
 
-# 2) รัน API (เสิร์ฟ frontend ให้ด้วย)
+```bash
+createdb physiocare
 cd backend
 cp .env.example .env        # แก้ DATABASE_URL และ JWT_SECRET
 npm install
+node --env-file=.env scripts/migrate.js --demo   # schema + ข้อมูลอ้างอิง + แนวทางการรักษา + ข้อมูลทดลอง
 node --env-file=.env src/server.js
 # เปิด http://localhost:3000
 ```
+
+### ใช้งานจริง (production)
+
+ใช้ Docker Compose (แอป + PostgreSQL + HTTPS อัตโนมัติ + สำรองข้อมูลรายวัน) ตามคู่มือ [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production จะ **ไม่มี** ข้อมูลทดลองและบัญชี `Passw0rd!` ให้สร้างผู้ดูแลระบบคนแรกด้วย `npm run create-admin`
+
+### โครงสร้างไฟล์ฐานข้อมูล
+
+| ไฟล์ | เนื้อหา | Production |
+|---|---|:-:|
+| `db/001_schema.sql` | ตาราง, constraint, trigger, view | ✓ |
+| `db/002_reference_data.sql` | บทบาท/สิทธิ์, ตั้งค่า, ความเชี่ยวชาญ, หมวดอุปกรณ์, ICD-10, ข้อห้ามใช้ | ✓ |
+| `db/003_clinical_guidelines.sql` | ฐานความรู้แนวทางการรักษา (รันซ้ำอัตโนมัติเมื่อแก้ไข) | ✓ |
+| `db/demo/101_demo_data.sql` | บุคลากร ผู้ป่วย อุปกรณ์ บัญชีทดลอง | ✗ |
+| `db/demo/102_demo_appointments.sql` | นัดตัวอย่าง ~260 รายการ | ✗ |
+
+`scripts/migrate.js` บันทึกไฟล์ที่รันแล้วในตาราง `schema_migrations` — การแก้ schema ครั้งต่อไปให้เพิ่มไฟล์ใหม่ เช่น `db/004_xxx.sql` (ฐานข้อมูลที่เคยสร้างด้วย `psql` ก่อนหน้านี้ ให้รัน `scripts/migrate.js --baseline` หนึ่งครั้ง)
 
 ### บัญชีทดลอง (รหัสผ่าน `Passw0rd!`)
 
@@ -59,4 +73,4 @@ cd backend
 DATABASE_URL=postgres://localhost/physiocare_test npm test   # ⚠ จะล้าง schema ของฐานข้อมูลนี้
 ```
 
-> ⚠ ความเชื่อมโยงระหว่างโรค ความเชี่ยวชาญ และอุปกรณ์ รวมถึงกฎข้อห้ามใช้ใน `db/002_seed.sql` เป็นข้อมูลตัวอย่าง ต้องให้นักกายภาพบำบัดตรวจรับรองก่อนใช้งานจริง
+> ⚠ ความเชื่อมโยงระหว่างโรค ความเชี่ยวชาญ และอุปกรณ์ รวมถึงกฎข้อห้ามใช้ใน `db/002_reference_data.sql` เป็นข้อมูลตัวอย่าง ต้องให้นักกายภาพบำบัดตรวจรับรองก่อนใช้งานจริง

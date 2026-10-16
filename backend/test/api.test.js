@@ -58,9 +58,9 @@ const DAY = nextWorkday(2);
 before(async () => {
   const sql = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'db', f), 'utf8');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  await pool.query(sql('001_schema.sql'));
-  await pool.query(sql('002_seed.sql'));
-  await pool.query(sql('004_clinical_guidelines.sql'));
+  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', 'demo/101_demo_data.sql']) {
+    await pool.query(sql(f));
+  }
   await sse.startListener();
   server = createApp().listen(0);
   base = `http://127.0.0.1:${server.address().port}`;
@@ -87,6 +87,15 @@ describe('Auth & RBAC', () => {
   test('wrong password -> 401', async () => {
     const r = await api('POST', '/api/auth/login', { body: { email: 'admin@physiocare.local', password: 'nope' } });
     assert.equal(r.status, 401);
+  });
+
+  test('login is rate limited per IP', async () => {
+    let last;
+    for (let i = 0; i < 40 && (!last || last.status !== 429); i++) {
+      last = await api('POST', '/api/auth/login', { body: { email: `nobody${i}@x.test`, password: 'x' } });
+    }
+    assert.equal(last.status, 429);
+    assert.ok(last.headers.get('retry-after'));
   });
 
   test('no token -> 401', async () => {

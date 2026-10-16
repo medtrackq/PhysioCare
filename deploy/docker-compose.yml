@@ -1,0 +1,83 @@
+# PhysioCare — single-server deployment
+#   cd deploy && cp .env.example .env && (แก้ค่าใน .env) && docker compose up -d --build
+name: physiocare
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: physiocare
+      POSTGRES_USER: physiocare
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Bangkok
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U physiocare -d physiocare"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: physiocare:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://physiocare:${POSTGRES_PASSWORD}@db:5432/physiocare
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
+      TZ: Asia/Bangkok
+    volumes:
+      - uploads:/data/uploads
+    expose:
+      - "3000"
+
+  # HTTPS อัตโนมัติด้วย Let's Encrypt (ต้องชี้ DNS ของ DOMAIN มาที่เซิร์ฟเวอร์ และเปิดพอร์ต 80/443)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # สำรองฐานข้อมูล + ไฟล์รูปภาพทุกวัน เก็บย้อนหลังตาม BACKUP_KEEP_DAYS
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: physiocare
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: physiocare
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_HOUR: ${BACKUP_HOUR:-02}
+      TZ: Asia/Bangkok
+    volumes:
+      - ./backup.sh:/backup.sh:ro
+      - ./backups:/backups
+      - uploads:/uploads:ro
+    entrypoint: ["sh", "/backup.sh", "--loop"]
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
