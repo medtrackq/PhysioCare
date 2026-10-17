@@ -16,7 +16,7 @@ export async function render(root, { session }) {
   const canStatus = session.can('equipment:status');
   root.innerHTML = `
     ${pageHeader('ห้อง & เตียง', 'ผังการใช้งานแบบ real-time — อัปเดตเมื่อมีการจอง เริ่ม/จบการรักษา หรือเปลี่ยนสถานะเตียง',
-      canWrite ? `${btn('+ ห้อง', 'id="fc-room"', 'ghost')}${btn('+ เตียง', 'id="fc-bed"')}` : '')}
+      `<a href="#/facilities3d" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 bg-white hover:bg-slate-50">🧊 มุมมอง 3D</a>${canWrite ? `${btn('+ ห้อง', 'id="fc-room"', 'ghost')}${btn('+ เตียง', 'id="fc-bed"')}` : ''}`)}
     <div class="flex flex-wrap items-center gap-2 mb-4 text-sm">
       <span class="text-slate-500">ดูผัง ณ เวลา</span>
       <input id="fc-at" type="datetime-local" class="${input} max-w-[220px]">

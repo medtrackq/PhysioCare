@@ -58,8 +58,7 @@ const DAY = nextWorkday(2);
 before(async () => {
   const sql = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'db', f), 'utf8');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql',
-    'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql']) {
+  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql', '005_floor_plan.sql', 'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql', 'demo/104_demo_floor_plan.sql']) {
     await pool.query(sql(f));
   }
   await sse.startListener();
@@ -450,6 +449,23 @@ describe('Rooms & beds', () => {
     const r = await api('GET', `/api/scheduling/slots?date=${D2}&durationMin=45&therapistIds=${PT.weerapong}&patientId=${PAT.prasert}`, { token: tokens.front });
     assert.ok(r.body.length > 0);
     assert.ok(r.body.every((s) => s.space && s.space.bedId));
+  });
+
+  test('3D board data: floor plan, equipment location at time, KPIs; layout is editable', async () => {
+    const board = await api('GET', `/api/facilities/board?at=${encodeURIComponent(at(D2, '09:10'))}`, { token: tokens.front });
+    assert.equal(board.status, 200);
+    const gym = board.body.rooms.find((r) => r.code === 'GYM');
+    assert.equal(Number(gym.plan_w), 12);
+    const traction = board.body.equipment.find((e) => e.asset_code === 'EQ-TRC-001');
+    assert.ok(traction.in_use_by, 'traction booked 09:00-09:45 is in use at 09:10');
+    assert.equal(traction.in_use_room_id, room('R4').id);
+    assert.ok(board.body.kpis.patientsNow >= 2);
+    assert.ok(board.body.kpis.bedsOccupied >= 2);
+
+    const mv = await api('PATCH', `/api/facilities/rooms/${room('R5').id}`, { token: tokens.admin, body: { planX: 24, planZ: 6.5 } });
+    assert.equal(mv.status, 200);
+    assert.equal(Number(mv.body.plan_z), 6.5);
+    assert.equal((await api('PATCH', `/api/facilities/rooms/${room('R5').id}`, { token: tokens.front, body: { planX: 1 } })).status, 403, 'front desk cannot edit layout');
   });
 
   test('closing a bed lists affected bookings with substitute beds; board shows state', async () => {

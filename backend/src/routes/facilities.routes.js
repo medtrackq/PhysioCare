@@ -32,7 +32,7 @@ router.get('/board', authorize('equipment:read', 'appointments:read_all'), valid
   query: z.object({ at: z.string().datetime({ offset: true }).optional() }),
 }), async (req, res) => {
   const at = req.valid.query.at ? new Date(req.valid.query.at) : new Date();
-  const [rooms, beds, appts] = await Promise.all([
+  const [rooms, beds, appts, equipment] = await Promise.all([
     db.query('SELECT * FROM rooms WHERE is_active ORDER BY code'),
     db.query('SELECT * FROM beds WHERE is_active ORDER BY code'),
     // นัดที่กำลังอยู่ ณ เวลานั้น + นัดถัดไปของวัน
@@ -45,12 +45,37 @@ router.get('/board', authorize('equipment:read', 'appointments:read_all'), valid
           AND COALESCE(a.bed_until, a.end_at) > $1
           AND (a.start_at AT TIME ZONE 'Asia/Bangkok')::date = ($1::timestamptz AT TIME ZONE 'Asia/Bangkok')::date
         ORDER BY a.start_at`, [at]),
+    // อุปกรณ์: ตำแหน่ง ณ เวลานั้น = ห้องที่ติดตั้ง หรือห้อง/เตียงของนัดที่กำลังใช้อยู่ (อุปกรณ์เคลื่อนย้ายได้)
+    db.query(
+      `SELECT e.id, e.name, e.asset_code, e.status, e.room_id, e.plan_x, e.plan_z, c.code AS category_code, c.space_type,
+              cur.appointment_id AS in_use_by, cur.room_id AS in_use_room_id, cur.bed_id AS in_use_bed_id
+         FROM equipment e
+         JOIN equipment_categories c ON c.id = e.category_id
+         LEFT JOIN LATERAL (
+           SELECT a.id AS appointment_id, a.room_id, a.bed_id
+             FROM appointment_equipment ae JOIN appointments a ON a.id = ae.appointment_id
+            WHERE ae.equipment_id = e.id AND ae.is_active AND a.status NOT IN ('cancelled','no_show')
+              AND a.start_at <= $1 AND a.end_at > $1
+            LIMIT 1) cur ON true
+        WHERE e.status <> 'retired'
+        ORDER BY e.asset_code`, [at]),
   ]);
   const now = at.getTime();
   const isCurrent = (a) => new Date(a.start_at).getTime() <= now && now < new Date(a.end_at).getTime();
   const isTurnover = (a) => a.bed_until && new Date(a.end_at).getTime() <= now && now < new Date(a.bed_until).getTime();
+  const currentAppts = appts.rows.filter(isCurrent);
   res.json({
     at,
+    equipment: equipment.rows,
+    kpis: {
+      patientsNow: currentAppts.length,
+      therapistsBusy: new Set(currentAppts.map((a) => a.therapist_name)).size,
+      bedsOccupied: currentAppts.filter((a) => a.bed_id).length,
+      bedsTotal: beds.rows.filter((b) => b.status === 'available').length,
+      equipmentInUse: equipment.rows.filter((e) => e.in_use_by).length,
+      equipmentDown: equipment.rows.filter((e) => ['broken', 'maintenance'].includes(e.status)).length,
+      remainingToday: appts.rows.filter((a) => new Date(a.start_at).getTime() > now).length,
+    },
     rooms: rooms.rows.map((r) => {
       const inRoom = appts.rows.filter((a) => a.room_id === r.id);
       return {
@@ -78,8 +103,15 @@ const roomBody = z.object({
   capacity: z.number().int().min(1).max(100),
   isActive: z.boolean().optional(),
   notes: z.string().nullish(),
+  planX: z.number().min(-500).max(500).nullish(),
+  planZ: z.number().min(-500).max(500).nullish(),
+  planW: z.number().positive().max(200).nullish(),
+  planD: z.number().positive().max(200).nullish(),
 });
-const ROOM_COLS = { code: 'code', name: 'name', roomType: 'room_type', floor: 'floor', capacity: 'capacity', isActive: 'is_active', notes: 'notes' };
+const ROOM_COLS = {
+  code: 'code', name: 'name', roomType: 'room_type', floor: 'floor', capacity: 'capacity', isActive: 'is_active', notes: 'notes',
+  planX: 'plan_x', planZ: 'plan_z', planW: 'plan_w', planD: 'plan_d',
+};
 
 router.post('/rooms', authorize('equipment:write'), validate({ body: roomBody }), async (req, res) => {
   const b = req.valid.body;
@@ -110,8 +142,14 @@ const bedBody = z.object({
   bedType: z.enum(BED_TYPES),
   isActive: z.boolean().optional(),
   notes: z.string().nullish(),
+  planX: z.number().min(-200).max(200).nullish(),
+  planZ: z.number().min(-200).max(200).nullish(),
+  planRot: z.number().int().min(-360).max(360).optional(),
 });
-const BED_COLS = { roomId: 'room_id', code: 'code', name: 'name', bedType: 'bed_type', isActive: 'is_active', notes: 'notes' };
+const BED_COLS = {
+  roomId: 'room_id', code: 'code', name: 'name', bedType: 'bed_type', isActive: 'is_active', notes: 'notes',
+  planX: 'plan_x', planZ: 'plan_z', planRot: 'plan_rot',
+};
 
 router.post('/beds', authorize('equipment:write'), validate({ body: bedBody }), async (req, res) => {
   const b = req.valid.body;
