@@ -13,6 +13,8 @@ async function getSettings(client = db) {
     slotMinutes: Number(s['scheduling.slot_minutes'] || 30),
     defaultDuration: Number(s['scheduling.default_duration'] || 45),
     requirePreAssessment: s['emr.require_pre_assessment'] !== false,
+    bedTurnoverMinutes: Number(s['scheduling.bed_turnover_minutes'] ?? 5),
+    autoAssignSpace: s['scheduling.auto_assign_space'] !== false,
     raw: s,
   };
   cacheAt = Date.now();

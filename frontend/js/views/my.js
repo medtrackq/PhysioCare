@@ -9,7 +9,7 @@ export async function render(root) {
   const list = (items) => (items.length ? `<ul class="divide-y divide-slate-100">${items.map((a) => `
     <li class="py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
       <div><div class="font-medium">${fmtDateTime(a.start_at)} – ${fmtTime(a.end_at)}</div>
-      <div class="text-slate-500">${esc(a.therapist_name)}${a.diagnosis_name ? ` · ${esc(a.diagnosis_name)}` : ''}</div></div>
+      <div class="text-slate-500">${esc(a.therapist_name)}${a.diagnosis_name ? ` · ${esc(a.diagnosis_name)}` : ''}${a.room_name ? ` · ${esc(a.room_name)}` : ''}</div></div>
       ${badge(APPT_STATUS, a.status)}
     </li>`).join('')}</ul>` : empty('ไม่มีรายการ'));
   root.innerHTML = `

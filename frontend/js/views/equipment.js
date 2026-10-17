@@ -80,7 +80,7 @@ function cardHtml(e) {
 }
 
 async function openDetail(id, session, reload) {
-  const e = await api.get(`/equipment/${id}`);
+  const [e, rooms] = await Promise.all([api.get(`/equipment/${id}`), api.get('/facilities/rooms').catch(() => [])]);
   const canStatus = session.can('equipment:status');
   const canMaint = session.can('maintenance:write');
   const canUpload = session.can('media:upload') && (session.can('equipment:write') || canStatus);
@@ -98,10 +98,20 @@ async function openDetail(id, session, reload) {
             ['ยี่ห้อ/รุ่น', esc(`${e.brand || ''} ${e.model || ''}`)], ['Serial', esc(e.serial_no || '–')],
             ['วันที่ซื้อ', fmtDate(e.purchase_date)], ['ราคา', fmtMoney(e.purchase_price)],
             ['หมดประกัน', fmtDate(e.warranty_expiry)], ['ที่ตั้ง', esc(e.location || '–')],
+            ['ห้องที่ติดตั้ง', e.room_name ? esc(e.room_name) : 'เคลื่อนย้ายได้'],
+            ['ใช้พื้นที่', { bed: 'บนเตียง', gym: 'ห้องออกกำลังกาย', none: 'ไม่ระบุ' }[e.space_type] || '–'],
             ['บำรุงรักษาล่าสุด', fmtDate(e.last_maintenance_at)], ['ครบกำหนด PM', fmtDate(e.next_maintenance_due)],
             ['ค่าซ่อมสะสม', fmtMoney(e.maintenanceCostTotal)], ['Buffer ทำความสะอาด', `${e.cleaning_buffer_minutes} นาที`],
           ].map(([k, v]) => `<dt class="text-slate-500">${k}</dt><dd>${v}</dd>`).join('')}
         </dl>
+        ${session.can('equipment:write') ? `
+        <div class="rounded-lg bg-slate-50 p-3 space-y-2">
+          <div class="text-sm font-medium">ห้องที่ติดตั้ง</div>
+          <div class="flex gap-2"><select id="eq-room" class="${input}"><option value="">เคลื่อนย้ายได้ (ไม่ผูกห้อง)</option>
+            ${rooms.map((r) => `<option value="${r.id}" ${r.id === e.room_id ? 'selected' : ''}>${esc(r.code)} ${esc(r.name)}</option>`).join('')}</select>
+            ${btn('บันทึก', 'id="eq-room-save"', 'ghost')}</div>
+          <p class="text-[11px] text-slate-500">อุปกรณ์ที่ผูกห้องจะจองได้เฉพาะนัดที่อยู่ในห้องนั้น</p>
+        </div>` : ''}
         ${canStatus ? `
         <div class="rounded-lg bg-slate-50 p-3 space-y-2">
           <div class="text-sm font-medium">เปลี่ยนสถานะ</div>
@@ -148,6 +158,10 @@ async function openDetail(id, session, reload) {
     const fd = new FormData();
     [...ev.target.files].forEach((f) => fd.append('images', f));
     try { await api.upload(`/media/equipment/${id}`, fd); toast('อัปโหลดสำเร็จ', 'success'); refresh(); } catch (err) { showError(err); }
+  });
+
+  $('#eq-room-save', m.el)?.addEventListener('click', async () => {
+    try { await api.patch(`/equipment/${id}`, { roomId: $('#eq-room', m.el).value || null }); toast('บันทึกห้องแล้ว', 'success'); refresh(); } catch (err) { showError(err); }
   });
 
   $('#st-save', m.el)?.addEventListener('click', async () => {

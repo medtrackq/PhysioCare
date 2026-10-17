@@ -9,7 +9,8 @@ const OPEN = 8;
 const CLOSE = 20;
 const ROW_PX = 28; // 30 นาที
 const DOW_TH = ['จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.', 'อา.'];
-const MODES = [['day', 'วัน'], ['week', 'สัปดาห์'], ['month', 'เดือน']];
+const MODES = [['day', 'วัน'], ['beds', 'ตามเตียง'], ['week', 'สัปดาห์'], ['month', 'เดือน']];
+const isDayLike = () => mode === 'day' || mode === 'beds';
 
 let currentDate = bkkToday();
 let mode = 'week';
@@ -26,7 +27,7 @@ const thDate = (date, opts) => new Date(`${date}T12:00:00+07:00`).toLocaleDateSt
 const isActive = (a) => !['cancelled', 'no_show'].includes(a.status);
 
 function range() {
-  if (mode === 'day') return [currentDate, currentDate];
+  if (isDayLike()) return [currentDate, currentDate];
   if (mode === 'week') { const m = mondayOf(currentDate); return [m, addDays(m, 6)]; }
   const first = `${currentDate.slice(0, 8)}01`;
   const start = mondayOf(first);
@@ -35,7 +36,7 @@ function range() {
 
 function label() {
   const [from, to] = range();
-  if (mode === 'day') return thDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (isDayLike()) return thDate(currentDate, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   if (mode === 'week') return `${thDate(from, { day: 'numeric', month: 'short' })} – ${thDate(to, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   return thDate(currentDate, { month: 'long', year: 'numeric' });
 }
@@ -105,6 +106,7 @@ export async function render(root, { session }) {
     <div id="sc-grid" class="bg-white rounded-xl border border-slate-200 overflow-x-auto"></div>`;
 
   let staff = [];
+  let rooms = null;
   const load = async () => {
     const [from, to] = range();
     $('#sc-label').textContent = label();
@@ -115,10 +117,12 @@ export async function render(root, { session }) {
       api.get(`/appointments?from=${encodeURIComponent(bkkISO(from, '00:00'))}&to=${encodeURIComponent(bkkISO(to, '23:59'))}`),
       mode === 'day' ? api.get(`/staff/shifts?from=${from}&to=${to}`) : null,
     ]);
+    if (mode === 'beds' && !rooms) rooms = await api.get('/facilities/rooms').catch(() => []);
     staff = st.filter((s) => s.is_active);
     renderLegend(appts);
     const visible = appts.filter((a) => !hiddenTherapists.has(a.therapist_id));
     if (mode === 'day') drawDay(staff.filter((s) => !hiddenTherapists.has(s.id)), visible, shifts);
+    else if (mode === 'beds') drawBeds(rooms, visible);
     else if (mode === 'week') drawWeek(visible, from);
     else drawMonth(visible, from);
     $$('[data-appt]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openAppointment(b.dataset.appt, session, load); }));
@@ -162,6 +166,35 @@ export async function render(root, { session }) {
     for (const [a, b] of spans) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
     if (cur < total) out.push([cur, total]);
     return out.map(([a, b]) => `<div class="absolute inset-x-0 bg-slate-100/70" style="top:${a}px;height:${b - a}px" title="นอกกะ"></div>`).join('');
+  };
+
+  // ---------- Beds: คอลัมน์ต่อเตียง (ห้องรวมเช่น gym เป็นคอลัมน์เดียว) ----------
+  const drawBeds = (roomList, appts) => {
+    const rows = (CLOSE - OPEN) * 2;
+    const cols = [];
+    for (const r of (roomList || []).filter((x) => x.is_active)) {
+      if (r.room_type === 'gym' || !r.beds.length) cols.push({ key: `room:${r.id}`, room: r, title: r.name, sub: `รับ ${r.capacity} คน`, match: (a) => a.room_id === r.id && !a.bed_id });
+      else r.beds.filter((b) => b.is_active).forEach((b) => cols.push({
+        key: b.id, room: r, bed: b, title: `${r.code} · ${b.name}`, sub: b.status !== 'available' ? (b.status === 'maintenance' ? 'ปิดซ่อม' : 'งดใช้') : '', match: (a) => a.bed_id === b.id,
+      }));
+    }
+    const unassigned = appts.filter((a) => !a.room_id && isActive(a));
+    if (unassigned.length) cols.push({ key: 'none', title: 'ยังไม่ระบุห้อง', sub: '', match: (a) => !a.room_id });
+    if (!cols.length) { $('#sc-grid').innerHTML = '<div class="p-8 text-center text-sm text-slate-400">ยังไม่ได้ตั้งค่าห้อง/เตียง — ไปที่เมนู "ห้อง & เตียง"</div>'; return; }
+    $('#sc-grid').innerHTML = `
+      <div class="grid" style="grid-template-columns: 56px repeat(${cols.length}, minmax(120px, 1fr)); min-width:${56 + cols.length * 120}px">
+        <div class="border-b border-slate-200"></div>
+        ${cols.map((c) => `<div class="border-b border-l border-slate-200 px-2 py-2 text-xs ${c.bed?.status && c.bed.status !== 'available' ? 'bg-amber-50' : ''}">
+          <div class="font-semibold truncate">${esc(c.title)}</div><div class="text-slate-400 truncate">${esc(c.sub)}</div></div>`).join('')}
+        ${timeGutter(rows)}
+        ${cols.map((c) => `
+          <div class="relative border-l border-slate-200 ${c.bed?.status && c.bed.status !== 'available' ? 'bg-amber-50/40' : ''}" style="height:${rows * ROW_PX}px">
+            ${gridLines(rows)}
+            ${nowLine(currentDate)}
+            ${layoutLanes(appts.filter((a) => isActive(a) && c.match(a))).map((a) =>
+              apptBlock(a, `left:calc(${(a._lane / a._lanes) * 100}% + 2px);width:calc(${100 / a._lanes}% - 4px);top:${top(a.start_at) + 1}px;height:${height(a.start_at, a.end_at)}px`, a._lanes > 1)).join('')}
+          </div>`).join('')}
+      </div>`;
   };
 
   // ---------- Week: 7 วัน, นัดที่ซ้อนเวลาถูกวางเคียงกัน ----------
@@ -227,7 +260,7 @@ export async function render(root, { session }) {
     if (n) {
       const dir = Number(n.dataset.nav);
       if (dir === 0) currentDate = bkkToday();
-      else if (mode === 'day') currentDate = addDays(currentDate, dir);
+      else if (isDayLike()) currentDate = addDays(currentDate, dir);
       else if (mode === 'week') currentDate = addDays(currentDate, 7 * dir);
       else { const d = new Date(`${currentDate.slice(0, 8)}01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + dir); currentDate = d.toISOString().slice(0, 10); }
       load();
@@ -266,6 +299,7 @@ async function openAppointment(id, session, reload) {
       <dt class="text-slate-500">เวลา</dt><dd class="col-span-2">${fmtDateTime(a.start_at)} – ${fmtTime(a.end_at)}</dd>
       <dt class="text-slate-500">นักกายภาพ</dt><dd class="col-span-2">${esc(a.therapist_name)}</dd>
       <dt class="text-slate-500">วินิจฉัย</dt><dd class="col-span-2">${esc(a.icd10_code || '–')} ${esc(a.diagnosis_name || '')}</dd>
+      <dt class="text-slate-500">ห้อง / เตียง</dt><dd class="col-span-2">${a.room_name ? `${esc(a.room_name)}${a.bed_name ? ` · ${esc(a.bed_name)}` : ''}` : '–'}</dd>
       <dt class="text-slate-500">อุปกรณ์</dt><dd class="col-span-2">${a.equipment.map((e) => `${esc(e.name)} <span class="text-xs text-slate-400">(จองถึง ${fmtTime(e.reserved_until)} รวม buffer)</span>`).join('<br>') || '–'}</dd>
       <dt class="text-slate-500">สถานะ</dt><dd class="col-span-2">${badge(APPT_STATUS, a.status)}</dd>
       <dt class="text-slate-500">เวชระเบียน</dt><dd class="col-span-2">Pre ${a.has_pre ? '✅' : '⬜'} · Post ${a.has_post ? '✅' : '⬜'}</dd>
@@ -414,6 +448,7 @@ function openBooking(reload) {
       b.classList.add('bg-brand-600', 'text-white');
       st.slot = slots[Number(b.dataset.slot)];
       st.equipment = st.slot.equipment;
+      st.space = st.slot.space || {};
       dryRun();
     }));
   }
@@ -430,11 +465,23 @@ function openBooking(reload) {
     equipmentIds: Object.values(st.equipment),
     diagnosisId: st.rec.diagnoses[0]?.id,
     bookedVia: 'recommendation',
+    roomId: st.space?.roomId || undefined,
+    bedId: st.space?.bedId || undefined,
     ...extra,
   });
 
+  let roomList = null;
+  const spaceLabel = (sp) => {
+    if (!sp?.roomId) return '–';
+    const room = roomList?.find((r) => r.id === sp.roomId);
+    const bed = room?.beds.find((b) => b.id === sp.bedId);
+    return `${esc(room?.name || '')}${bed ? ` · ${esc(bed.name)}` : ''}`;
+  };
+
   async function dryRun() {
+    if (!roomList) roomList = await api.get('/facilities/rooms').catch(() => []);
     const r = await api.post('/scheduling/check', payload());
+    if (r.space?.roomId) st.space = { roomId: r.space.roomId, bedId: r.space.bedId };
     renderCheck(r);
   }
 
@@ -444,6 +491,7 @@ function openBooking(reload) {
       <div class="rounded-xl ring-1 ring-inset ${r.ok ? 'ring-emerald-200 bg-emerald-50/50' : 'ring-rose-200 bg-rose-50/50'} p-4 space-y-2 text-sm">
         <div class="font-semibold">${r.ok ? '✅ ไม่พบความขัดแย้ง' : '⛔ พบความขัดแย้ง'}</div>
         <div>${fmtDateTime(st.slot.startAt)}–${fmtTime(st.slot.endAt)} · อุปกรณ์: ${eqNames.map((u) => esc(`${u.name} (${u.asset_code})`)).join(', ') || '–'}</div>
+        <div>🛏️ ห้อง/เตียง: <b>${spaceLabel(st.space)}</b>${roomList?.length ? ` <select id="bk-bed" class="ml-2 rounded border border-slate-300 px-1 py-0.5 text-xs"><option value="">เปลี่ยนเตียง…</option>${roomList.flatMap((rm) => rm.beds.filter((b) => b.status === 'available').map((b) => `<option value="${b.id}">${esc(rm.code)} · ${esc(b.name)}</option>`)).join('')}</select>` : ''}</div>
         ${(r.conflicts || []).map((c) => `<div class="text-rose-700">• ${esc(c.message)}</div>`).join('')}
         ${(r.warnings || []).map((c) => `<div class="text-amber-700">⚠ ${esc(c.message)}</div>`).join('')}
         ${r.alternatives ? alternativesHtml(r.alternatives) : ''}
@@ -453,18 +501,29 @@ function openBooking(reload) {
       </div>`;
     $('#bk-confirm', el)?.addEventListener('click', confirm);
     $$('[data-alt-slot]', el).forEach((b) => b.addEventListener('click', () => {
-      st.slot = { startAt: b.dataset.start, endAt: b.dataset.end, equipment: JSON.parse(b.dataset.eq) };
+      st.slot = { startAt: b.dataset.start, endAt: b.dataset.end, equipment: JSON.parse(b.dataset.eq), space: JSON.parse(b.dataset.space || '{}') };
       st.equipment = st.slot.equipment;
+      st.space = st.slot.space;
       dryRun();
     }));
+    $$('[data-alt-space]', el).forEach((b) => b.addEventListener('click', () => {
+      st.space = JSON.parse(b.dataset.altSpace);
+      dryRun();
+    }));
+    $('#bk-bed', el)?.addEventListener('change', (e) => {
+      if (!e.target.value) return;
+      st.space = { bedId: e.target.value, roomId: roomList.find((rm) => rm.beds.some((b) => b.id === e.target.value)).id };
+      dryRun();
+    });
   }
 
   const alternativesHtml = (alt) => `
     <div class="pt-2 border-t border-rose-200">
       <div class="font-medium mb-1">ทางเลือกที่ระบบแนะนำ</div>
-      ${alt.sameTherapistSlots.length ? `<div class="flex flex-wrap gap-1">${alt.sameTherapistSlots.map((s) => `<button data-alt-slot data-start="${s.startAt}" data-end="${s.endAt}" data-eq='${esc(JSON.stringify(s.equipment))}' class="rounded px-2 py-1 bg-white ring-1 ring-slate-300 text-xs">${fmtDateTime(s.startAt)}</button>`).join('')}</div>` : ''}
+      ${alt.sameTherapistSlots.length ? `<div class="flex flex-wrap gap-1">${alt.sameTherapistSlots.map((s) => `<button data-alt-slot data-start="${s.startAt}" data-end="${s.endAt}" data-eq='${esc(JSON.stringify(s.equipment))}' data-space='${esc(JSON.stringify(s.space || {}))}' class="rounded px-2 py-1 bg-white ring-1 ring-slate-300 text-xs">${fmtDateTime(s.startAt)}</button>`).join('')}</div>` : ''}
       ${alt.otherTherapistsSameTime.length ? `<div class="text-xs mt-1">นักกายภาพที่ว่างเวลาเดิม: ${alt.otherTherapistsSameTime.map((t) => esc(t.name)).join(', ')}</div>` : ''}
       ${alt.equipmentSubstitutes.map((s) => `<div class="text-xs mt-1">เครื่องทดแทน: ${s.options.map((o) => esc(o.asset_code)).join(', ')}</div>`).join('')}
+      ${alt.spaceSubstitutes?.length ? `<div class="text-xs mt-1 flex flex-wrap items-center gap-1">ห้อง/เตียงที่ว่างเวลาเดิม: ${alt.spaceSubstitutes.map((sp) => `<button data-alt-space='${esc(JSON.stringify({ roomId: sp.roomId, bedId: sp.bedId }))}' class="rounded px-2 py-0.5 bg-white ring-1 ring-slate-300">${esc(sp.roomName)}${sp.bedName ? ` · ${esc(sp.bedName)}` : ''}</button>`).join('')}</div>` : ''}
     </div>`;
 
   async function confirm() {

@@ -94,6 +94,7 @@ async function renderReports(root) {
         ${card(`<div class="p-4"><h3 class="font-semibold mb-2">อัตราการใช้งานนักกายภาพ</h3>${table(r.therapistUtilization, [['name', 'ชื่อ'], ['visits', 'Visits'], ['booked_hours', 'ชม.นัด'], ['shift_hours', 'ชม.กะ'], ['utilization_pct', '%']])}</div>`)}
         ${card(`<div class="p-4"><h3 class="font-semibold mb-2">การใช้งานอุปกรณ์ตามหมวด</h3>${table(r.equipmentUtilization, [['category', 'หมวด'], ['units', 'เครื่อง'], ['booked_hours', 'ชม.ที่จอง']])}</div>`)}
         ${card(`<div class="p-4"><h3 class="font-semibold mb-2">ผลลัพธ์ทางคลินิก</h3>${table(r.clinicalOutcomes, [['icd10_code', 'ICD-10'], ['name_th', 'โรค'], ['sessions', 'ครั้ง'], ['avg_pain_reduction', 'Pain ลดเฉลี่ย'], ['improved_pct', '% ดีขึ้น']])}</div>`)}
+        ${card(`<div class="p-4"><h3 class="font-semibold mb-2">การใช้ห้อง/เตียง</h3>${table(r.roomUtilization || [], [['name', 'ห้อง'], ['beds', 'เตียง'], ['capacity', 'ความจุ'], ['visits', 'Visits'], ['booked_hours', 'ชม.ที่ใช้']])}</div>`)}
         ${card(`<div class="p-4"><h3 class="font-semibold mb-2">งานบำรุงรักษา</h3>${table(r.maintenance, [['type', 'ประเภท'], ['n', 'จำนวน'], ['cost', 'ค่าใช้จ่าย'], ['avg_turnaround_hours', 'ชม.เฉลี่ย']])}</div>`)}
       </div>`;
     chart?.destroy();

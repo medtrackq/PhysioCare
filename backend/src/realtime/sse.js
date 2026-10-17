@@ -7,7 +7,7 @@ const { Client } = require('pg');
 const config = require('../config');
 const { can } = require('../middleware/auth');
 
-const CHANNELS = { equipment_status: 'equipment:read', appointment_changed: 'appointments:read_all' };
+const CHANNELS = { equipment_status: 'equipment:read', bed_status: 'equipment:read', appointment_changed: 'appointments:read_all' };
 const clients = new Set();
 let listener = null;
 let stopping = false;

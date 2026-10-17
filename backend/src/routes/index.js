@@ -11,6 +11,7 @@ router.get('/realtime/stream', authorize('equipment:read', 'appointments:read_al
 router.use('/users', require('./users.routes'));
 router.use('/settings', require('./settings.routes'));
 router.use('/equipment', require('./equipment.routes'));
+router.use('/facilities', require('./facilities.routes'));
 router.use('/staff', require('./staff.routes'));
 router.use('/patients', require('./patients.routes'));
 router.use('/emr', require('./emr.routes'));

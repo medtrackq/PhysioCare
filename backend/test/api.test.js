@@ -58,7 +58,8 @@ const DAY = nextWorkday(2);
 before(async () => {
   const sql = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'db', f), 'utf8');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', 'demo/101_demo_data.sql']) {
+  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql',
+    'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql']) {
     await pool.query(sql(f));
   }
   await sse.startListener();
@@ -341,6 +342,10 @@ describe('Smart scheduling & conflict resolution', () => {
       assert.equal(r.status, 200);
       const e = await api('GET', `/api/equipment/${eq['EQ-IFC-001']}`, { token: tokens.front });
       assert.equal(e.body.status, 'available');
+      // จบก่อนเวลา -> เตียงถูกคืนให้คนอื่นจองได้
+      const { rows: [a] } = await pool.query('SELECT bed_id, bed_until, end_at FROM appointments WHERE id = $1', [apptA.id]);
+      assert.ok(a.bed_id, 'appointment had a bed');
+      assert.ok(a.bed_until < a.end_at, 'bed released early');
     });
 
     test('progress compares baseline vs latest', async () => {
@@ -358,6 +363,106 @@ describe('Smart scheduling & conflict resolution', () => {
       const r = await api('PATCH', `/api/appointments/${apptA.id}/status`, { token: tokens.front, body: { status: 'cancelled', reason: 'x' } });
       assert.equal(r.status, 422);
     });
+  });
+});
+
+describe('Rooms & beds', () => {
+  const D2 = nextWorkday(3);
+  let rooms;
+  const bed = (code) => rooms.flatMap((r) => r.beds).find((b) => b.code === code);
+  const room = (code) => rooms.find((r) => r.code === code);
+
+  before(async () => {
+    rooms = (await api('GET', '/api/facilities/rooms', { token: tokens.front })).body;
+  });
+
+  test('booking auto-assigns a free bed; fixed equipment forces its room', async () => {
+    const a = await api('POST', '/api/appointments', {
+      token: tokens.front,
+      body: { patientId: PAT.poom, therapistId: PT.somchai, startAt: at(D2, '09:00'), endAt: at(D2, '09:45') },
+    });
+    assert.equal(a.status, 201, JSON.stringify(a.body));
+    assert.ok(a.body.appointment.bed_id, 'bed assigned');
+    assert.equal(a.body.spaceAutoAssigned, true);
+    assert.equal(rooms.find((r) => r.id === a.body.appointment.room_id).room_type, 'pediatric', 'child prefers pediatric room');
+
+    const t = await api('POST', '/api/appointments', {
+      token: tokens.front,
+      body: { patientId: PAT.wilai, therapistId: PT.supaporn, startAt: at(D2, '09:00'), endAt: at(D2, '09:45'), equipmentIds: [eq['EQ-TRC-001']], acknowledgeWarnings: true },
+    });
+    assert.equal(t.status, 201, JSON.stringify(t.body));
+    assert.equal(t.body.appointment.room_id, room('R4').id, 'traction table lives in R4');
+    const bedEnd = new Date(t.body.appointment.bed_until) - new Date(t.body.appointment.end_at);
+    assert.equal(bedEnd, 5 * 60000, 'bed turnover buffer');
+  });
+
+  test('explicit bed double booking (incl. turnover) is rejected with bed alternatives', async () => {
+    const body = { patientId: PAT.prasert, therapistId: PT.somchai, startAt: at(D2, '13:00'), endAt: at(D2, '13:45'), bedId: bed('R2-B1').id };
+    assert.equal((await api('POST', '/api/appointments', { token: tokens.front, body })).status, 201);
+    const r = await api('POST', '/api/appointments', {
+      token: tokens.front,
+      body: { patientId: PAT.poom, therapistId: PT.supaporn, startAt: at(D2, '13:45'), endAt: at(D2, '14:30'), bedId: bed('R2-B1').id },
+    });
+    assert.equal(r.status, 409);
+    assert.ok(r.body.error.details.conflicts.some((c) => c.type === 'BED_DOUBLE_BOOKED'), 'turnover window blocks back-to-back');
+    assert.ok(r.body.error.details.alternatives.spaceSubstitutes.length > 0);
+    // ด่านสุดท้ายในฐานข้อมูล
+    await assert.rejects(pool.query(
+      `INSERT INTO appointments (patient_id, therapist_id, start_at, end_at, room_id, bed_id, bed_until)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [PAT.wilai, PT.weerapong, at(D2, '13:10'), at(D2, '13:30'), room('R2').id, bed('R2-B1').id, at(D2, '13:35')]), /ex_bed_double_booking/);
+  });
+
+  test('fixed equipment in another room is a conflict', async () => {
+    const r = await api('POST', '/api/scheduling/check', {
+      token: tokens.front,
+      body: { patientId: PAT.prasert, therapistId: PT.somchai, startAt: at(D2, '10:00'), endAt: at(D2, '10:45'), equipmentIds: [eq['EQ-TRC-001']], bedId: bed('R1-B1').id },
+    });
+    assert.ok(r.body.conflicts.some((c) => c.type === 'EQUIPMENT_WRONG_ROOM'));
+  });
+
+  test('bed under maintenance cannot be booked', async () => {
+    const r = await api('POST', '/api/scheduling/check', {
+      token: tokens.front,
+      body: { patientId: PAT.prasert, therapistId: PT.somchai, startAt: at(D2, '11:00'), endAt: at(D2, '11:45'), bedId: bed('R1-B3').id },
+    });
+    assert.ok(r.body.conflicts.some((c) => c.type === 'BED_UNAVAILABLE'));
+  });
+
+  test('gym capacity is enforced', async () => {
+    assert.equal((await api('PATCH', `/api/facilities/rooms/${room('GYM').id}`, { token: tokens.admin, body: { capacity: 1 } })).status, 200);
+    const first = await api('POST', '/api/appointments', {
+      token: tokens.front,
+      body: { patientId: PAT.wilai, therapistId: PT.supaporn, startAt: at(D2, '15:00'), endAt: at(D2, '15:45'), equipmentIds: [eq['EQ-PB-001']], acknowledgeWarnings: true },
+    });
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    assert.equal(first.body.appointment.room_id, room('GYM').id);
+    assert.equal(first.body.appointment.bed_id, null, 'gym work needs no bed');
+    const second = await api('POST', '/api/scheduling/check', {
+      token: tokens.front,
+      body: { patientId: PAT.poom, therapistId: PT.nattida, startAt: at(D2, '15:00'), endAt: at(D2, '15:45'), equipmentIds: [eq['EQ-TM-001']], roomId: room('GYM').id },
+    });
+    assert.ok(second.body.conflicts.some((c) => c.type === 'ROOM_FULL'));
+    await api('PATCH', `/api/facilities/rooms/${room('GYM').id}`, { token: tokens.admin, body: { capacity: 6 } });
+  });
+
+  test('slot finder returns a space for every slot', async () => {
+    const r = await api('GET', `/api/scheduling/slots?date=${D2}&durationMin=45&therapistIds=${PT.weerapong}&patientId=${PAT.prasert}`, { token: tokens.front });
+    assert.ok(r.body.length > 0);
+    assert.ok(r.body.every((s) => s.space && s.space.bedId));
+  });
+
+  test('closing a bed lists affected bookings with substitute beds; board shows state', async () => {
+    const r = await api('PATCH', `/api/facilities/beds/${bed('R2-B1').id}/status`, { token: tokens.front, body: { status: 'maintenance', reason: 'ผ้าใบขาด' } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.affectedAppointments.length, 1);
+    assert.ok(r.body.affectedAppointments[0].substitutes.length > 0);
+    const board = await api('GET', `/api/facilities/board?at=${encodeURIComponent(at(D2, '13:10'))}`, { token: tokens.front });
+    const r2 = board.body.rooms.find((x) => x.code === 'R2');
+    assert.equal(r2.beds.find((b) => b.code === 'R2-B1').state, 'maintenance');
+    await api('PATCH', `/api/facilities/beds/${bed('R2-B1').id}/status`, { token: tokens.front, body: { status: 'available' } });
+    const board2 = await api('GET', `/api/facilities/board?at=${encodeURIComponent(at(D2, '13:10'))}`, { token: tokens.front });
+    assert.equal(board2.body.rooms.find((x) => x.code === 'R2').beds.find((b) => b.code === 'R2-B1').state, 'occupied');
   });
 });
 

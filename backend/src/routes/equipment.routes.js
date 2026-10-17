@@ -41,8 +41,10 @@ router.get('/', authorize('equipment:read'), validate({
 router.get('/:id', authorize('equipment:read'), validate({ params: idParam }), async (req, res) => {
   const { id } = req.valid.params;
   const { rows: [eq] } = await db.query(
-    `SELECT e.*, c.code AS category_code, c.name_th AS category_name, c.cleaning_buffer_minutes, c.maintenance_interval_days
-       FROM equipment e JOIN equipment_categories c ON c.id = e.category_id WHERE e.id = $1`, [id]);
+    `SELECT e.*, c.code AS category_code, c.name_th AS category_name, c.cleaning_buffer_minutes, c.maintenance_interval_days,
+            c.space_type, r.name AS room_name
+       FROM equipment e JOIN equipment_categories c ON c.id = e.category_id
+       LEFT JOIN rooms r ON r.id = e.room_id WHERE e.id = $1`, [id]);
   if (!eq) throw notFound('อุปกรณ์');
   const [maint, logs, upcoming, images] = await Promise.all([
     db.query('SELECT * FROM equipment_maintenance WHERE equipment_id = $1 ORDER BY reported_at DESC', [id]),
@@ -78,11 +80,12 @@ const eqBody = z.object({
   vendor: z.string().nullish(),
   warrantyExpiry: z.string().date().nullish(),
   notes: z.string().nullish(),
+  roomId: z.string().uuid().nullish(), // ติดตั้งประจำห้อง (null = เคลื่อนย้ายได้)
 });
 const COLS = {
   assetCode: 'asset_code', name: 'name', categoryId: 'category_id', brand: 'brand', model: 'model', serialNo: 'serial_no',
   location: 'location', purchaseDate: 'purchase_date', purchasePrice: 'purchase_price', vendor: 'vendor',
-  warrantyExpiry: 'warranty_expiry', notes: 'notes',
+  warrantyExpiry: 'warranty_expiry', notes: 'notes', roomId: 'room_id',
 };
 
 router.post('/', authorize('equipment:write'), validate({ body: eqBody }), async (req, res) => {

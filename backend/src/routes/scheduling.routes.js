@@ -49,14 +49,18 @@ const bookingBody = z.object({
   notes: z.string().max(1000).optional(),
   bookedVia: z.enum(['manual', 'recommendation', 'patient_portal']).optional(),
   acknowledgeWarnings: z.boolean().optional(),
+  roomId: uuid.optional(),
+  bedId: uuid.optional(),
 });
 
 /** Dry-run: ตรวจความขัดแย้งโดยไม่จองจริง (ใช้แสดงผลแบบ real-time บนฟอร์มจอง) */
 router.post('/scheduling/check', authorize('appointments:write'), validate({
   body: bookingBody.extend({ excludeAppointmentId: uuid.optional() }),
 }), async (req, res) => {
-  const result = await sched.checkConflicts(db, req.valid.body);
-  if (!result.ok) result.alternatives = await sched.suggestAlternatives(req.valid.body, result.conflicts);
+  const input = await sched.autoAssignSpace(db, req.valid.body);
+  const result = await sched.checkConflicts(db, input);
+  result.space = { roomId: input.roomId || null, bedId: input.bedId || null, autoAssigned: Boolean(input.spaceAutoAssigned) };
+  if (!result.ok) result.alternatives = await sched.suggestAlternatives(input, result.conflicts);
   res.json(result);
 });
 
@@ -67,6 +71,7 @@ const APPT_SELECT = `
   SELECT a.*, p.hn, p.title AS patient_title, p.first_name || ' ' || p.last_name AS patient_name,
          s.title || s.first_name || ' ' || s.last_name AS therapist_name, s.color AS therapist_color,
          d.icd10_code, d.name_th AS diagnosis_name,
+         rm.code AS room_code, rm.name AS room_name, bd.code AS bed_code, bd.name AS bed_name,
          COALESCE((SELECT json_agg(json_build_object('id', e.id, 'name', e.name, 'asset_code', e.asset_code,
                                      'status', e.status, 'reserved_until', ae.end_at))
                      FROM appointment_equipment ae JOIN equipment e ON e.id = ae.equipment_id
@@ -76,7 +81,9 @@ const APPT_SELECT = `
     FROM appointments a
     JOIN patients p ON p.id = a.patient_id
     JOIN staff s ON s.id = a.therapist_id
-    LEFT JOIN diagnoses d ON d.id = a.diagnosis_id`;
+    LEFT JOIN diagnoses d ON d.id = a.diagnosis_id
+    LEFT JOIN rooms rm ON rm.id = a.room_id
+    LEFT JOIN beds bd ON bd.id = a.bed_id`;
 
 router.get('/appointments', authorize('appointments:read_all', 'appointments:read_own'), validate({
   query: z.object({
@@ -108,7 +115,7 @@ router.get('/appointments', authorize('appointments:read_all', 'appointments:rea
     // ผู้ป่วยไม่ต้องเห็นข้อมูลภายใน
     return res.json(rows.map((r) => ({
       id: r.id, start_at: r.start_at, end_at: r.end_at, status: r.status, therapist_name: r.therapist_name,
-      visit_type: r.visit_type, diagnosis_name: r.diagnosis_name,
+      visit_type: r.visit_type, diagnosis_name: r.diagnosis_name, room_name: r.room_name,
     })));
   }
   res.json(rows);
@@ -130,7 +137,7 @@ router.post('/appointments', authorize('appointments:write'), validate({ body: b
 router.patch('/appointments/:id/reschedule', authorize('appointments:write'), validate({
   params: idParam,
   body: z.object({
-    startAt: dt, endAt: dt, version: z.number().int(), therapistId: uuid.optional(),
+    startAt: dt, endAt: dt, version: z.number().int(), therapistId: uuid.optional(), roomId: uuid.optional(), bedId: uuid.optional(),
     equipmentIds: z.array(uuid).max(6).optional(), acknowledgeWarnings: z.boolean().optional(),
   }),
 }), async (req, res) => {

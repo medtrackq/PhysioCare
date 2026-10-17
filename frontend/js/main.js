@@ -8,6 +8,7 @@ const ROUTES = [
   { path: 'dashboard', label: 'ภาพรวม', icon: '📊', perm: ['appointments:read_all', 'reports:view'], load: () => import('./views/dashboard.js') },
   { path: 'schedule', label: 'ตารางนัดหมาย', icon: '🗓️', perm: ['appointments:read_all'], load: () => import('./views/schedule.js') },
   { path: 'equipment', label: 'อุปกรณ์', icon: '🛠️', perm: ['equipment:read'], load: () => import('./views/equipment.js') },
+  { path: 'facilities', label: 'ห้อง & เตียง', icon: '🛏️', perm: ['equipment:read'], load: () => import('./views/facilities.js') },
   { path: 'staff', label: 'บุคลากร & กะ', icon: '👩‍⚕️', perm: ['staff:read'], load: () => import('./views/staff.js') },
   { path: 'guidelines', label: 'แนวทางการรักษา', icon: '📚', perm: ['patients:read', 'emr:read'], load: () => import('./views/knowledge.js') },
   { path: 'emr', label: 'เวชระเบียน', icon: '📝', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
@@ -56,7 +57,7 @@ function connectRealtime() {
   const txt = $('#live-text');
   es.onopen = () => { dot.className = 'w-2 h-2 rounded-full bg-emerald-500'; txt.textContent = 'live'; };
   es.onerror = () => { dot.className = 'w-2 h-2 rounded-full bg-amber-500'; txt.textContent = 'reconnecting…'; };
-  for (const ev of ['equipment_status', 'appointment_changed']) {
+  for (const ev of ['equipment_status', 'bed_status', 'appointment_changed']) {
     es.addEventListener(ev, (m) => window.dispatchEvent(new CustomEvent(ev, { detail: JSON.parse(m.data) })));
   }
 }

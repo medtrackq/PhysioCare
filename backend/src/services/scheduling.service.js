@@ -177,17 +177,133 @@ async function checkConflicts(client, input) {
     }
   }
 
+  await checkSpaceConflicts(client, input, startAt, endAt, settings, conflicts);
+
   return { ok: conflicts.length === 0, conflicts, warnings };
 }
+
+const SPACE_CONFLICTS = new Set([
+  'BED_NOT_FOUND', 'BED_NOT_IN_ROOM', 'BED_UNAVAILABLE', 'BED_DOUBLE_BOOKED', 'NO_BED_AVAILABLE',
+  'ROOM_UNAVAILABLE', 'ROOM_FULL', 'NO_ROOM_AVAILABLE', 'EQUIPMENT_WRONG_ROOM', 'EQUIPMENT_DIFFERENT_ROOMS',
+]);
+
+async function equipmentSpaceRows(client, equipmentIds = []) {
+  if (!equipmentIds.length) return [];
+  return (await client.query(
+    `SELECT e.id, e.name, e.asset_code, e.room_id, c.space_type, r.name AS room_name
+       FROM equipment e JOIN equipment_categories c ON c.id = e.category_id
+       LEFT JOIN rooms r ON r.id = e.room_id
+      WHERE e.id = ANY($1)`, [equipmentIds])).rows;
+}
+
+/** ตรวจห้อง/เตียง (ข้ามทั้งหมดถ้าคลินิกยังไม่ได้ตั้งค่าห้อง) */
+async function checkSpaceConflicts(client, input, startAt, endAt, settings, conflicts) {
+  const { rows: [{ n }] } = await client.query('SELECT count(*)::int AS n FROM rooms WHERE is_active');
+  if (!n) return;
+  const excl = input.excludeAppointmentId || null;
+  const eq = await equipmentSpaceRows(client, input.equipmentIds);
+  const needs = avail.spaceNeeds(eq);
+  if (needs.fixedRoomIds.length > 1) {
+    conflicts.push({
+      type: 'EQUIPMENT_DIFFERENT_ROOMS',
+      message: `อุปกรณ์ที่เลือกติดตั้งอยู่คนละห้อง: ${eq.filter((e) => e.room_id).map((e) => `${e.name} (${e.room_name})`).join(', ')}`,
+    });
+  }
+
+  let roomId = input.roomId || null;
+  if (input.bedId) {
+    const { rows: [bed] } = await client.query(
+      `SELECT b.*, r.name AS room_name FROM beds b JOIN rooms r ON r.id = b.room_id WHERE b.id = $1`, [input.bedId]);
+    if (!bed) {
+      conflicts.push({ type: 'BED_NOT_FOUND', resource: { kind: 'bed', id: input.bedId }, message: 'ไม่พบเตียง' });
+    } else {
+      const res = { kind: 'bed', id: bed.id, name: `${bed.room_name} · ${bed.name}`, roomId: bed.room_id };
+      if (roomId && bed.room_id !== roomId) conflicts.push({ type: 'BED_NOT_IN_ROOM', resource: res, message: `${bed.name} ไม่ได้อยู่ในห้องที่เลือก` });
+      roomId = bed.room_id;
+      if (bed.status !== 'available' || !bed.is_active) {
+        conflicts.push({ type: 'BED_UNAVAILABLE', resource: res, message: `${res.name} ${bed.status === 'maintenance' ? 'ปิดซ่อม' : 'งดใช้งาน'}` });
+      }
+      const { rows } = await client.query(
+        `SELECT id, start_at, end_at FROM appointments
+          WHERE bed_id = $1 AND ${ACTIVE} AND ($4::uuid IS NULL OR id <> $4)
+            AND bed_period && tstzrange($2::timestamptz, $3::timestamptz + make_interval(mins => $5::int), '[)')`,
+        [bed.id, startAt, endAt, excl, settings.bedTurnoverMinutes]);
+      for (const a of rows) {
+        conflicts.push({
+          type: 'BED_DOUBLE_BOOKED', resource: res,
+          message: `${res.name} ถูกจองช่วง ${fmt(a.start_at)}–${fmt(a.end_at).slice(11)} (รวมเวลาเปลี่ยนผ้าปู ${settings.bedTurnoverMinutes} นาที)`,
+          conflictingWith: { appointmentId: a.id, startAt: a.start_at, endAt: a.end_at },
+        });
+      }
+    }
+  } else if (needs.needsBed) {
+    conflicts.push({ type: 'NO_BED_AVAILABLE', resource: { kind: 'bed' }, message: 'ไม่มีเตียงว่างที่เหมาะสมในช่วงเวลานี้' });
+  }
+  if (needs.gymOnly && !roomId) {
+    conflicts.push({ type: 'NO_ROOM_AVAILABLE', resource: { kind: 'room' }, message: 'ห้องออกกำลังกายเต็มในช่วงเวลานี้' });
+  }
+
+  if (roomId) {
+    const { rows: [room] } = await client.query('SELECT * FROM rooms WHERE id = $1', [roomId]);
+    const res = room && { kind: 'room', id: room.id, name: room.name };
+    if (!room || !room.is_active) {
+      conflicts.push({ type: 'ROOM_UNAVAILABLE', resource: res || { kind: 'room', id: roomId }, message: 'ห้องนี้ไม่เปิดใช้งาน' });
+    } else {
+      const { rows: occ } = await client.query(
+        `SELECT start_at, end_at FROM appointments
+          WHERE room_id = $1 AND ${ACTIVE} AND ($4::uuid IS NULL OR id <> $4) AND period && tstzrange($2, $3, '[)')`,
+        [roomId, startAt, endAt, excl]);
+      const ctx = { rooms: new Map([[room.id, { capacity: room.capacity, occupancy: occ.map((o) => [new Date(o.start_at).getTime(), new Date(o.end_at).getTime()]) }]]) };
+      if (!avail.roomHasCapacity(ctx, room.id, startAt.getTime(), endAt.getTime())) {
+        conflicts.push({ type: 'ROOM_FULL', resource: res, message: `${room.name} เต็ม (รับได้พร้อมกัน ${room.capacity} คน)` });
+      }
+      for (const e of eq.filter((x) => x.room_id && x.room_id !== roomId)) {
+        conflicts.push({
+          type: 'EQUIPMENT_WRONG_ROOM', resource: { kind: 'equipment', id: e.id, name: e.name },
+          message: `${e.name} ติดตั้งอยู่ที่ ${e.room_name} แต่นัดนี้อยู่ ${room.name}`,
+        });
+      }
+    }
+  }
+}
+
+/** จัดห้อง/เตียงอัตโนมัติถ้ายังไม่ได้ระบุ (ห้องต้องถูก lock ไว้แล้วเมื่อเรียกใน transaction) */
+async function autoAssignSpace(client, data) {
+  if (data.bedId && !data.roomId) {
+    // ระบุเตียงมาอย่างเดียว -> ใช้ห้องของเตียงนั้น
+    const { rows: [b] } = await client.query('SELECT room_id FROM beds WHERE id = $1', [data.bedId]);
+    return b ? { ...data, roomId: b.room_id } : data;
+  }
+  if (data.roomId || data.bedId) return data;
+  const settings = await getSettings(client);
+  if (!settings.autoAssignSpace) return data;
+  const s = new Date(data.startAt);
+  const e = new Date(data.endAt);
+  const ctx = await avail.loadContext(client, { from: s, to: e, spaces: true, excludeAppointmentId: data.excludeAppointmentId });
+  if (!avail.spacesConfigured(ctx)) return data;
+  const eq = await equipmentSpaceRows(client, data.equipmentIds);
+  const pick = avail.pickSpace(ctx, avail.spaceNeeds(eq), s.getTime(), e.getTime(), { pediatric: await isPediatric(client, data.patientId) });
+  return pick ? { ...data, roomId: pick.roomId, bedId: pick.bedId, spaceAutoAssigned: true } : data;
+}
+
+async function isPediatric(client, patientId) {
+  if (!patientId) return false;
+  const { rows: [p] } = await client.query(`SELECT date_of_birth > CURRENT_DATE - interval '15 years' AS ped FROM patients WHERE id = $1`, [patientId]);
+  return Boolean(p?.ped);
+}
+
+const bedUntil = (bedId, endAt, settings) => (bedId ? new Date(new Date(endAt).getTime() + settings.bedTurnoverMinutes * 60000) : null);
 
 // ---------------------------------------------------------------------
 // 2) Transactional booking
 // ---------------------------------------------------------------------
 async function lockResources(client, { therapistId, patientId, equipmentIds = [] }) {
-  // ลำดับคงที่: staff -> patient -> equipment (เรียงตาม id) ป้องกัน deadlock
+  // ลำดับคงที่: staff -> patient -> rooms -> equipment (เรียงตาม id) ป้องกัน deadlock
   await client.query('SELECT id FROM staff WHERE id = $1 FOR UPDATE', [therapistId]);
   const p = await client.query('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [patientId]);
   if (!p.rowCount) throw notFound('ผู้ป่วย');
+  // จัดลำดับการจองห้อง/เตียงทั้งคลินิก (สั้นมาก) — กันสองคำขอเลือกเตียงเดียวกันพร้อมกัน
+  await client.query('SELECT id FROM rooms WHERE is_active ORDER BY id FOR UPDATE');
   if (equipmentIds.length) {
     await client.query('SELECT id FROM equipment WHERE id = ANY($1) ORDER BY id FOR UPDATE', [equipmentIds]);
   }
@@ -218,20 +334,24 @@ async function withAlternatives(input, fn) {
 async function createAppointment(user, input) {
   const equipmentIds = [...new Set(input.equipmentIds || [])];
   const data = { ...input, equipmentIds };
+  const settings = await getSettings();
   return withAlternatives(data, () => db.withTx(async (client) => {
     await lockResources(client, data);
+    Object.assign(data, await autoAssignSpace(client, data));
     const check = await checkConflicts(client, data);
     if (!check.ok) throw conflict('SCHEDULE_CONFLICT', 'conflict', check);
     if (check.warnings.length && !data.acknowledgeWarnings) {
       throw unprocessable('WARNINGS_REQUIRE_ACK', 'มีข้อควรระวังที่ต้องยืนยันก่อนจอง (acknowledgeWarnings: true)', check);
     }
     const { rows: [appt] } = await client.query(
-      `INSERT INTO appointments (patient_id, therapist_id, diagnosis_id, start_at, end_at, visit_type, notes, booked_via, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO appointments (patient_id, therapist_id, diagnosis_id, start_at, end_at, visit_type, notes, booked_via, created_by,
+                                 room_id, bed_id, bed_until)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [data.patientId, data.therapistId, data.diagnosisId || null, data.startAt, data.endAt,
-        data.visitType || 'follow_up', data.notes || null, data.bookedVia || 'manual', user.id]);
+        data.visitType || 'follow_up', data.notes || null, data.bookedVia || 'manual', user.id,
+        data.roomId || null, data.bedId || null, bedUntil(data.bedId, data.endAt, settings)]);
     await insertEquipmentReservations(client, appt.id, equipmentIds, data.startAt, data.endAt);
-    return { appointment: appt, warnings: check.warnings };
+    return { appointment: appt, warnings: check.warnings, spaceAutoAssigned: Boolean(data.spaceAutoAssigned) };
   }, { userId: user.id }));
 }
 
@@ -253,9 +373,21 @@ async function rescheduleAppointment(user, id, input) {
       equipmentIds: [...new Set(input.equipmentIds || curEq)],
       excludeAppointmentId: id,
       acknowledgeWarnings: input.acknowledgeWarnings,
+      roomId: input.roomId || null,
+      bedId: input.bedId || null,
     };
+    const settings = await getSettings(client);
     return withAlternatives(data, async () => {
       await lockResources(client, data);
+      if (input.bedId && !input.roomId) Object.assign(data, await autoAssignSpace(client, data));
+      if (!input.roomId && !input.bedId) {
+        // พยายามใช้ห้อง/เตียงเดิม ถ้าไม่ได้ให้จัดใหม่อัตโนมัติ
+        Object.assign(data, { roomId: cur.room_id, bedId: cur.bed_id });
+        const pre = await checkConflicts(client, data);
+        if (pre.conflicts.some((c) => SPACE_CONFLICTS.has(c.type))) {
+          Object.assign(data, await autoAssignSpace(client, { ...data, roomId: null, bedId: null }));
+        }
+      }
       const check = await checkConflicts(client, data);
       if (!check.ok) throw conflict('SCHEDULE_CONFLICT', 'conflict', check);
       if (check.warnings.length && !data.acknowledgeWarnings) {
@@ -263,8 +395,10 @@ async function rescheduleAppointment(user, id, input) {
       }
       await client.query('DELETE FROM appointment_equipment WHERE appointment_id = $1', [id]);
       const { rows: [appt] } = await client.query(
-        `UPDATE appointments SET therapist_id = $2, start_at = $3, end_at = $4, version = version + 1
-          WHERE id = $1 RETURNING *`, [id, data.therapistId, data.startAt, data.endAt]);
+        `UPDATE appointments SET therapist_id = $2, start_at = $3, end_at = $4, room_id = $5, bed_id = $6, bed_until = $7,
+                version = version + 1
+          WHERE id = $1 RETURNING *`,
+        [id, data.therapistId, data.startAt, data.endAt, data.roomId || null, data.bedId || null, bedUntil(data.bedId, data.endAt, settings)]);
       await insertEquipmentReservations(client, id, data.equipmentIds, data.startAt, data.endAt);
       return { appointment: appt, warnings: check.warnings };
     });
@@ -326,8 +460,9 @@ async function findSlots({ date, durationMin, patientId = null, therapistIds, ca
   const staffIds = therapistIds?.length ? therapistIds : await activeTherapistIds();
   const units = await bookableUnitsByCategory(categoryIds);
   const ctx = await avail.loadContext(db, {
-    from: dayStart, to: dayEnd, staffIds, equipmentIds: [...units.values()].flat(), patientId, excludeAppointmentId,
+    from: dayStart, to: dayEnd, staffIds, equipmentIds: [...units.values()].flat(), patientId, excludeAppointmentId, spaces: true,
   });
+  const pediatric = await isPediatric(db, patientId);
 
   const step = settings.slotMinutes * 60000;
   const dur = durationMin * 60000;
@@ -340,20 +475,27 @@ async function findSlots({ date, durationMin, patientId = null, therapistIds, ca
     const freeStaff = staffIds.filter((id) => !avail.staffBlockReason(ctx, id, t, e));
     if (!freeStaff.length) continue;
     const equipment = {};
+    let fixedRoom = null;
     let ok = true;
     for (const [catId, ids] of units) {
-      // เลือกเครื่องที่ถูกใช้น้อยที่สุดในวันนั้น (กระจายการสึกหรอ)
+      // เลือกเครื่องที่อยู่ห้องเดียวกับเครื่องที่ติดตั้งประจำซึ่งเลือกไว้แล้ว (หรือเคลื่อนย้ายได้)
+      // แล้วจึงเลือกเครื่องที่ถูกใช้น้อยที่สุดในวันนั้น (กระจายการสึกหรอ)
       const free = ids.filter((id) => avail.isEquipmentFree(ctx, id, t, e))
+        .filter((id) => !fixedRoom || !ctx.equipment.get(id).room_id || ctx.equipment.get(id).room_id === fixedRoom)
         .sort((a, b) => ctx.equipment.get(a).bookedMinutes - ctx.equipment.get(b).bookedMinutes);
       if (!free.length) { ok = false; break; }
       equipment[catId] = free[0];
+      fixedRoom = fixedRoom || ctx.equipment.get(free[0]).room_id || null;
     }
     if (!ok) continue;
+    const space = avail.pickSpace(ctx, avail.spaceNeeds(Object.values(equipment).map((id) => ctx.equipment.get(id))), t, e, { pediatric });
+    if (!space) continue; // ไม่มีห้อง/เตียงว่าง
     slots.push({
       startAt: new Date(t).toISOString(),
       endAt: new Date(e).toISOString(),
       therapistIds: freeStaff.sort((a, b) => avail.staffLoad(ctx, a) - avail.staffLoad(ctx, b)),
       equipment,
+      space,
     });
   }
   return slots;
@@ -363,7 +505,7 @@ async function suggestAlternatives(input, conflicts) {
   const start = new Date(input.startAt);
   const durationMin = Math.round((new Date(input.endAt) - start) / 60000);
   const settings = await getSettings();
-  const out = { sameTherapistSlots: [], otherTherapistsSameTime: [], equipmentSubstitutes: [] };
+  const out = { sameTherapistSlots: [], otherTherapistsSameTime: [], equipmentSubstitutes: [], spaceSubstitutes: [] };
 
   const eqIds = input.equipmentIds || [];
   const cats = eqIds.length
@@ -412,10 +554,29 @@ async function suggestAlternatives(input, conflicts) {
       }
     }
   }
+  // (d) ห้อง/เตียงอื่นที่ว่าง ณ เวลาเดิม
+  if (conflicts.some((c) => SPACE_CONFLICTS.has(c.type) && c.type !== 'EQUIPMENT_DIFFERENT_ROOMS')) {
+    const end = new Date(input.endAt);
+    const ctx = await avail.loadContext(db, { from: start, to: end, spaces: true, excludeAppointmentId: input.excludeAppointmentId });
+    const needs = avail.spaceNeeds(await equipmentSpaceRows(db, eqIds));
+    const fixed = needs.fixedRoomIds.length === 1 ? needs.fixedRoomIds[0] : null;
+    if (needs.gymOnly) {
+      out.spaceSubstitutes = [...ctx.rooms.values()]
+        .filter((r) => (fixed ? r.id === fixed : r.room_type === 'gym') && avail.roomHasCapacity(ctx, r.id, start.getTime(), end.getTime()))
+        .map((r) => ({ roomId: r.id, roomName: r.name, bedId: null, bedName: null }));
+    } else {
+      out.spaceSubstitutes = [...ctx.beds.values()]
+        .filter((b) => (!fixed || b.room_id === fixed) && b.id !== input.bedId
+          && avail.roomHasCapacity(ctx, b.room_id, start.getTime(), end.getTime()) && avail.isBedFree(ctx, b.id, start.getTime(), end.getTime()))
+        .slice(0, 6)
+        .map((b) => ({ roomId: b.room_id, roomName: ctx.rooms.get(b.room_id).name, bedId: b.id, bedName: b.name }));
+    }
+  }
   return out;
 }
 
 module.exports = {
+  autoAssignSpace, SPACE_CONFLICTS,
   checkConflicts, createAppointment, rescheduleAppointment, changeStatus, findSlots, suggestAlternatives,
   activeTherapistIds, bookableUnitsByCategory, TRANSITIONS,
 };

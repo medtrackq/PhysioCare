@@ -11,7 +11,7 @@ const BKK_END = (n) => `($${n}::date + 1)::timestamp AT TIME ZONE 'Asia/Bangkok'
 router.get('/summary', authorize('reports:view'), validate({ query: range }), async (req, res) => {
   const { from, to } = req.valid.query;
   const p = [from, to];
-  const [byStatus, therapist, equipment, outcome, maint, daily] = await Promise.all([
+  const [byStatus, therapist, equipment, outcome, maint, daily, rooms] = await Promise.all([
     db.query(
       `SELECT status, count(*)::int AS n FROM appointments
         WHERE start_at >= ${BKK(1)} AND start_at < ${BKK_END(2)} GROUP BY status`, p),
@@ -61,6 +61,16 @@ router.get('/summary', authorize('reports:view'), validate({ query: range }), as
               count(*) FILTER (WHERE status = 'no_show')::int AS no_show
          FROM appointments WHERE start_at >= ${BKK(1)} AND start_at < ${BKK_END(2)}
         GROUP BY 1 ORDER BY 1`, p),
+    // การใช้ห้อง/เตียง: ชั่วโมงที่มีผู้ป่วยต่อห้อง
+    db.query(
+      `SELECT r.code, r.name, r.room_type, r.capacity,
+              (SELECT count(*)::int FROM beds b WHERE b.room_id = r.id AND b.is_active) AS beds,
+              count(a.id)::int AS visits,
+              round(COALESCE(sum(extract(epoch FROM a.end_at - a.start_at)) / 3600, 0)::numeric, 1) AS booked_hours
+         FROM rooms r
+         LEFT JOIN appointments a ON a.room_id = r.id AND a.status NOT IN ('cancelled','no_show')
+              AND a.start_at >= ${BKK(1)} AND a.start_at < ${BKK_END(2)}
+        WHERE r.is_active GROUP BY r.id ORDER BY booked_hours DESC`, p),
   ]);
   const statusMap = Object.fromEntries(byStatus.rows.map((r) => [r.status, r.n]));
   const total = byStatus.rows.reduce((s, r) => s + r.n, 0);
@@ -73,6 +83,7 @@ router.get('/summary', authorize('reports:view'), validate({ query: range }), as
     clinicalOutcomes: outcome.rows,
     maintenance: maint.rows,
     daily: daily.rows,
+    roomUtilization: rooms.rows,
   });
 });
 

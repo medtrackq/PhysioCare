@@ -50,6 +50,7 @@ physiocare/
 │   ├── 001_schema.sql        # ตาราง, constraint, trigger, view
 │   ├── 002_reference_data.sql      # ข้อมูลอ้างอิง (บทบาท, ICD-10, หมวดอุปกรณ์, ข้อห้ามใช้)
 │   ├── 003_clinical_guidelines.sql # ฐานความรู้ตามแนวทางเวชปฏิบัติ (@repeatable)
+│   ├── 004_rooms_beds.sql          # ห้อง/เตียงเป็นทรัพยากรในการจัดตาราง
 │   └── demo/                       # ข้อมูลทดลอง — ห้ามใช้ใน production
 ├── deploy/                   # docker-compose, Caddyfile (HTTPS), backup.sh
 ├── Dockerfile
@@ -121,7 +122,8 @@ erDiagram
 | Staff Master | `staff`, `specialties`, `staff_specialties(level 1-5)`, `shift_templates`, `staff_shifts`, `staff_leaves` | `EXCLUDE` กันกะซ้อน, เลขใบอนุญาตบังคับสำหรับนักกายภาพ |
 | Equipment Master | `equipment_categories`, `equipment`, `equipment_status_logs`, `equipment_maintenance` | สถานะ 5 แบบ, `cleaning_buffer_minutes` ต่อหมวด, วันที่ซื้อ/ราคา/ประกัน, รอบ PM อัตโนมัติ |
 | Knowledge base | `diagnoses (ICD-10)`, `diagnosis_specialty_map`, `diagnosis_equipment_map`, `precaution_types`, `precaution_contraindications` | ข้อมูลที่ขับเคลื่อนระบบแนะนำ แก้ได้โดยไม่ต้องแก้โค้ด |
-| Scheduling | `appointments`, `appointment_equipment` | `EXCLUDE` 3 ชั้น, `version` สำหรับ optimistic lock |
+| Scheduling | `appointments`, `appointment_equipment` | `EXCLUDE` 4 ชุด (นักกายภาพ, ผู้ป่วย, อุปกรณ์, เตียง), `version` สำหรับ optimistic lock |
+| Facilities | `rooms` (ประเภท, ความจุ), `beds` (ประเภท, สถานะ), `equipment.room_id`, `equipment_categories.space_type` | ห้อง/เตียงเป็นทรัพยากรในการจัดตาราง (`db/004_rooms_beds.sql`) |
 | EMR | `clinical_assessments(phase pre/post)`, `rom_measurements`, `treatment_records`, `assessment_addenda` | ลงนามแล้วแก้ไม่ได้ (trigger) |
 | Media | `media_files` (polymorphic) | sha256, magic-byte validation, รูปหลัก 1 รูป/entity (partial unique index) |
 | Ops | `system_settings`, `audit_logs` | ตั้งค่าเวลาทำการ/slot ได้จาก UI, audit ทุกการอ่าน EMR |
@@ -174,18 +176,39 @@ sequenceDiagram
 | `CONTRAINDICATED` | ข้อห้ามเด็ดขาด เช่น pacemaker + TENS | block |
 | `RELATIVE_CONTRAINDICATION` | ใช้ด้วยความระมัดระวัง | ต้อง acknowledge |
 | `STAFF_DAILY_CAP` | เกินโควตาผู้ป่วยต่อวัน | ต้อง acknowledge |
+| `BED_DOUBLE_BOOKED` | เตียงถูกจองแล้ว (รวมเวลาเปลี่ยนผ้าปู) | block |
+| `BED_UNAVAILABLE` / `NO_BED_AVAILABLE` | เตียงปิดซ่อม/งดใช้ หรือไม่มีเตียงว่างที่เหมาะสม | block |
+| `ROOM_FULL` / `NO_ROOM_AVAILABLE` | ห้องเกินความจุ (เช่น gym) | block |
+| `EQUIPMENT_WRONG_ROOM` / `EQUIPMENT_DIFFERENT_ROOMS` | อุปกรณ์ติดตั้งประจำอยู่คนละห้องกับนัด | block |
 
 ### 3.3 การเสนอทางเลือกอัตโนมัติ (เมื่อชน)
 
 1. **sameTherapistSlots** — ช่องว่างที่ใกล้เวลาที่ขอที่สุดของนักกายภาพคนเดิม ภายใน 7 วัน (เช็คอุปกรณ์หมวดเดิมว่างด้วย)
 2. **otherTherapistsSameTime** — นักกายภาพคนอื่นที่ว่าง ณ เวลาเดิม
 3. **equipmentSubstitutes** — เครื่องอื่นในหมวดเดียวกันที่ว่าง ณ เวลาเดิม
+4. **spaceSubstitutes** — ห้อง/เตียงอื่นที่ว่าง ณ เวลาเดิม (เคารพห้องของอุปกรณ์ที่ติดตั้งประจำ)
 
 ### 3.4 Availability engine
 
 `services/availability.js` โหลดกะ/ลา/นัด/การจองอุปกรณ์/ช่วงซ่อมของทั้งวันด้วย query ไม่กี่ครั้ง แล้วคำนวณช่องว่างในหน่วยความจำ (ใช้กับ slot finder และระบบแนะนำ) ส่วนการจองจริงยังผ่าน 3 ชั้นด้านบนเสมอ
 
 เมื่อมีหลายเครื่องในหมวดเดียวกัน ระบบเลือกเครื่องที่ถูกใช้น้อยที่สุดในวันนั้น (wear leveling)
+
+### 3.5 ห้องและเตียง
+
+| แนวคิด | การทำงาน |
+|---|---|
+| **เตียง** | ใช้ได้ทีละคน — `EXCLUDE (bed_id, bed_period)` โดย `bed_period = [start_at, bed_until)` และ `bed_until = end_at + scheduling.bed_turnover_minutes` (เวลาเปลี่ยนผ้าปู) |
+| **ห้อง** | มี `capacity` — ห้องรวม (gym) รับได้หลายคนพร้อมกัน ตรวจด้วย sweep-line หาจำนวนผู้ป่วยสูงสุดที่ซ้อนกันในช่วงเวลา ภายใต้ row lock ของห้อง |
+| **อุปกรณ์ติดตั้งประจำห้อง** | `equipment.room_id` — เช่น โต๊ะดึงหลังอยู่ R4 → นัดที่ใช้เครื่องนี้ต้องอยู่ R4; `NULL` = เคลื่อนย้ายได้ |
+| **พื้นที่ที่ต้องใช้** | `equipment_categories.space_type`: `bed` (ทำบนเตียง), `gym` (ราวคู่ ลู่วิ่ง จักรยาน tilt table), `none` — นัดที่ไม่มีอุปกรณ์ (manual therapy) ต้องใช้เตียง; นัดที่ใช้อุปกรณ์ gym ล้วนไม่ต้องใช้เตียงแต่กินความจุห้อง gym |
+| **จัดสรรอัตโนมัติ** | ถ้าไม่ระบุห้อง/เตียง (`scheduling.auto_assign_space`) ระบบเลือกเตียงว่างในห้องของอุปกรณ์ที่ติดตั้งประจำ (ถ้ามี) → ห้องที่ยังไม่เต็ม → เตียงที่ถูกใช้น้อยที่สุดในวัน; ผู้ป่วยอายุต่ำกว่า 15 ปีได้ห้องเด็กก่อน และผู้ใหญ่ไม่ถูกจัดเข้าห้องเด็กถ้ามีที่อื่น |
+| **Race condition** | ระหว่างจัดสรร lock แถวห้องทั้งหมด (`rooms FOR UPDATE`) ตามลำดับ staff → patient → rooms → equipment จึงไม่มีสองคำขอเลือกเตียงเดียวกันพร้อมกัน และยังมี EXCLUDE เป็นด่านสุดท้าย |
+| **จบก่อนเวลา** | trigger คืนเวลาที่เหลือของเตียง (`bed_until` = ตอนนี้ + เวลาเปลี่ยนผ้าปู) ให้คนอื่นจองได้ |
+| **เลื่อนนัด** | ใช้ห้อง/เตียงเดิมถ้ายังว่าง ไม่เช่นนั้นจัดใหม่อัตโนมัติ |
+| **ปิดเตียงซ่อม** | `PATCH /api/facilities/beds/:id/status` คืนนัดในอนาคตที่ได้รับผลกระทบพร้อมเตียงทดแทน และ NOTIFY `bed_status` ให้หน้าผังเตียง |
+
+ถ้าคลินิกยังไม่ได้เพิ่มห้องเลย ระบบข้ามการตรวจห้อง/เตียงทั้งหมด (ทำงานแบบเดิม)
 
 ## 4. Diagnosis-to-Staff/Equipment Recommendation
 
@@ -304,6 +327,8 @@ continuity    = จำนวนครั้งที่เคยรักษา�
 | GET | `/api/emr/patients/:id/progress` | emr:read |
 | POST · GET · PATCH · DELETE | `/api/media/:type/:id` · `/api/media/:id` · `/api/media/:id/primary` · `/api/media/:id` | ตาม entity |
 | GET | `/api/reports/summary?from&to`, `/api/reports/equipment-alerts`, `/api/reports/audit` | reports:view / audit:read |
+| GET · POST · PATCH | `/api/facilities/rooms`, `/api/facilities/board?at=` · `/api/facilities/rooms`, `/api/facilities/beds` · `/api/facilities/rooms/:id`, `/api/facilities/beds/:id` | equipment:read · equipment:write |
+| PATCH | `/api/facilities/beds/:id/status` → คืน `affectedAppointments` + `substitutes` | equipment:status |
 | GET | `/api/realtime/stream` (SSE) | equipment:read / appointments:read_all |
 
 ## 11. แนวทางต่อยอดสู่ Production
@@ -316,6 +341,5 @@ continuity    = จำนวนครั้งที่เคยรักษา�
 - **Storage** ย้ายไป S3/MinIO + presigned URL, สร้าง thumbnail (sharp) และสแกนไวรัส
 - **Migration:** มีตัวรัน `backend/scripts/migrate.js` แล้ว (บันทึกใน `schema_migrations`) — ถ้าทีมใหญ่ขึ้นและต้องการ down migration ให้พิจารณา node-pg-migrate / Flyway
 - **Notification**: เตือนนัดผ่าน LINE/SMS ด้วย job queue (pg-boss) และรับ event จาก `appointment_changed`
-- **Rooms/Beds** เป็น resource ที่ 4 ใช้รูปแบบเดียวกับ `appointment_equipment` (EXCLUDE constraint)
 - **Integration** กับ HIS ผ่าน HL7 FHIR (`Appointment`, `Observation` สำหรับ pain/ROM, `Procedure`)
 - **Observability**: structured logging (pino), metrics, การ backup และ PITR ของ PostgreSQL
