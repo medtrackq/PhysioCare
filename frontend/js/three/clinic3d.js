@@ -4,6 +4,7 @@
  *   const view = createClinic3D(container, { THREE, onSelect, onRoomMove });
  *   view.update(board);          // board = GET /api/facilities/board
  *   view.setEditable(true);      // ลากย้ายห้องบนผัง (เรียก onRoomMove(room, x, z))
+ *   view.setTheme({ bg, ground, gridMajor, gridMinor, wall, floorTint }); // สีฉาก (โหมดสว่าง/มืด)
  *   view.dispose();
  *
  * ไม่พึ่ง addon ของ three.js (มี orbit controls ในตัว) จึงใช้ได้ทั้งในแอปและหน้า demo ไฟล์เดียว
@@ -17,7 +18,11 @@ const EQUIPMENT_COLORS = { in_use: '#2563eb', available: '#64748b', broken: '#ef
 const ROOM_FLOOR = { treatment: '#f8fafc', private: '#f5f3ff', gym: '#ecfdf5', pediatric: '#fff7ed', hydro: '#ecfeff', consult: '#f8fafc' };
 const PATIENT_COLOR = '#f4c58f';
 
-export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMove = null, editable = false } = {}) {
+const DEFAULT_THEME = { bg: '#e9eef4', ground: '#dfe6ee', gridMajor: '#c8d2de', gridMinor: '#d6dee7', wall: '#cbd5e1', storage: '#f1f5f9', floorTint: null };
+
+export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMove = null, editable = false, theme: initialTheme = {} } = {}) {
+  let theme = { ...DEFAULT_THEME, ...initialTheme };
+  let lastBoard = null;
   // ---------------------------------------------------------------- scene
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -29,7 +34,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
   renderer.domElement.style.touchAction = 'none';
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#e9eef4');
+  scene.background = new THREE.Color(theme.bg);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 500);
 
   scene.add(new THREE.HemisphereLight('#ffffff', '#b6c2d1', 1.6));
@@ -195,6 +200,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
   }
 
   function update(board) {
+    lastBoard = board;
     clear();
     const rooms = layoutRooms(board.rooms || []);
     const byId = new Map(rooms.map((r) => [r.id, r]));
@@ -208,12 +214,12 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     const W = storage.x + storage.w - bounds.minX + 4;
     const D = bounds.maxZ - bounds.minZ + 6;
     const S = Math.max(W, D);
-    const ground = new THREE.Mesh(track(new THREE.PlaneGeometry(S, S)), mat('#dfe6ee'));
+    const ground = new THREE.Mesh(track(new THREE.PlaneGeometry(S, S)), mat(theme.ground));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(bounds.minX - 2 + W / 2, -0.01, bounds.minZ - 2 + D / 2);
     ground.receiveShadow = true;
     world.add(ground);
-    const grid = new THREE.GridHelper(S, Math.round(S), '#c8d2de', '#d6dee7');
+    const grid = new THREE.GridHelper(S, Math.round(S), theme.gridMajor, theme.gridMinor);
     grid.position.copy(ground.position);
     grid.position.y = 0;
     track(grid.geometry); track(grid.material);
@@ -226,14 +232,14 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
       g.position.set(r.x, 0, r.z);
       g.userData = { kind: 'room', data: r };
       // พื้นห้อง (ใช้เป็นจุดคลิก/ลาก)
-      const floor = box(r.w, 0.04, r.d, ROOM_FLOOR[r.room_type] || '#f8fafc');
+      const floor = box(r.w, 0.04, r.d, (theme.floorTint && theme.floorTint[r.room_type]) || ROOM_FLOOR[r.room_type] || '#f8fafc');
       floor.position.set(r.w / 2, 0.02, r.d / 2);
       floor.castShadow = false;
       floor.userData = { kind: 'room', data: r, pick: true };
       g.add(floor);
       // ผนัง (เว้นประตูด้านหน้า)
       const wallH = 1.1;
-      const wallColor = '#cbd5e1';
+      const wallColor = theme.wall;
       const wallMat = { transparent: true, opacity: 0.9 };
       const back = box(r.w, wallH, 0.1, wallColor, wallMat); back.position.set(r.w / 2, wallH / 2, 0.05);
       const left = box(0.1, wallH, r.d, wallColor, wallMat); left.position.set(0.05, wallH / 2, r.d / 2);
@@ -333,7 +339,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
       world.add(mesh);
     }
     // คลังอุปกรณ์ (เครื่องเคลื่อนย้ายได้ที่ไม่ได้ใช้)
-    const sf = box(storage.w, 0.04, storage.d, '#f1f5f9');
+    const sf = box(storage.w, 0.04, storage.d, theme.storage);
     sf.position.set(storage.x + storage.w / 2, 0.02, storage.z + storage.d / 2);
     world.add(sf);
     const sl = label('คลังอุปกรณ์', { size: 0.55, sub: 'เครื่องเคลื่อนย้ายได้ที่ว่าง' });
@@ -474,7 +480,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     position: 'absolute', pointerEvents: 'none', padding: '4px 8px', borderRadius: '6px', fontSize: '12px',
     background: 'rgba(15,23,42,0.85)', color: '#fff', display: 'none', whiteSpace: 'nowrap', zIndex: 5,
   });
-  container.style.position = container.style.position || 'relative';
+  if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
   container.appendChild(tip);
   function hover(e) {
     const hit = pick(e);
@@ -514,6 +520,11 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     update,
     frame,
     setEditable(v) { editable = Boolean(v); },
+    setTheme(t) {
+      theme = { ...DEFAULT_THEME, ...t };
+      scene.background = new THREE.Color(theme.bg);
+      if (lastBoard) update(lastBoard);
+    },
     snapshot: () => { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); },
     dispose() {
       cancelAnimationFrame(raf);

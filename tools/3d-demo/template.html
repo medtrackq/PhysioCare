@@ -1,0 +1,335 @@
+<title>PhysioCare 3D Floor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  /* Layout: แผงควบคุมแบบห้องควบคุมคลินิก — ผัง 3D ใหญ่ทางซ้าย, แผงสถานะทางขวา, แถบเวลาเต็มความกว้าง, จุดเด่นระบบด้านล่าง
+     โทน: กระดาษเขียนแบบ (สว่าง) / พิมพ์เขียว (มืด) */
+  :root {
+    --bg: #eef2f4;
+    --panel: #ffffff;
+    --ink: #13232b;
+    --muted: #5b6b74;
+    --line: #d5dee3;
+    --accent: #0c6e7e;
+    --accent-soft: #d8eef1;
+    --warn: #b45309;
+    --scene-bg: #e6edf1;
+    --scene-ground: #d9e3e9;
+    --scene-grid-major: #c2d0d8;
+    --scene-grid-minor: #d2dde3;
+    --scene-wall: #c4d0d8;
+    --scene-storage: #edf2f5;
+    --chart-fill: rgba(12, 110, 126, 0.16);
+    --font-display: "Bai Jamjuree", "IBM Plex Sans Thai", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1a24; --panel: #132532; --ink: #e3edf2; --muted: #93a7b3; --line: #22394a;
+      --accent: #5ccfd9; --accent-soft: #163a46; --warn: #f5b04c;
+      --scene-bg: #0f2230; --scene-ground: #15303f; --scene-grid-major: #22475b; --scene-grid-minor: #1b3b4d;
+      --scene-wall: #3b5a6c; --scene-storage: #1a3646; --chart-fill: rgba(92, 207, 217, 0.18);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1a24; --panel: #132532; --ink: #e3edf2; --muted: #93a7b3; --line: #22394a;
+    --accent: #5ccfd9; --accent-soft: #163a46; --warn: #f5b04c;
+    --scene-bg: #0f2230; --scene-ground: #15303f; --scene-grid-major: #22475b; --scene-grid-minor: #1b3b4d;
+    --scene-wall: #3b5a6c; --scene-storage: #1a3646; --chart-fill: rgba(92, 207, 217, 0.18);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 40px;
+  }
+  .wrap { max-width: 1440px; margin: 0 auto; display: grid; gap: 18px; }
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  header.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+  .brand { display: grid; gap: 2px; }
+  .brand h1 { font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.3rem); font-weight: 700; letter-spacing: 0.01em; }
+  .brand p { margin: 0; color: var(--muted); max-width: 62ch; }
+  .tag { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .demo-pill { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); background: var(--panel); }
+
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 1080px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+  .viewport { position: relative; height: min(68vh, 720px); min-height: 380px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--scene-bg); }
+  #scene { position: absolute; inset: 0; }
+  .clock { position: absolute; left: 14px; top: 12px; z-index: 4; pointer-events: none; display: grid; gap: 0; }
+  .clock b { font-family: var(--font-mono); font-size: clamp(1.8rem, 1.3rem + 2vw, 2.8rem); line-height: 1; color: var(--ink); text-shadow: 0 1px 0 var(--bg); }
+  .clock span { font-size: 13px; color: var(--muted); }
+  .hint { position: absolute; right: 12px; bottom: 10px; z-index: 4; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+  .noscene { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; padding: 24px; text-align: center; }
+
+  aside.side { display: grid; gap: 12px; min-width: 0; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+  .panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; letter-spacing: 0.02em; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, select { font: inherit; font-size: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .kpi { display: grid; gap: 2px; }
+  .kpi small { font-size: 11px; color: var(--muted); line-height: 1.3; }
+  .kpi b { font-family: var(--font-mono); font-size: 20px; font-variant-numeric: tabular-nums; }
+
+  .feed { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; font-size: 13px; }
+  .feed .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+  .feed .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .feed .where { color: var(--muted); font-size: 12px; }
+  .empty { color: var(--muted); font-size: 13px; }
+
+  .legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  .timeline { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 8px; display: grid; gap: 4px; }
+  .timeline header { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .chart-wrap { position: relative; height: 92px; }
+  #chart { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #scrub { position: absolute; left: 34px; bottom: 16px; top: 0; width: calc(100% - 54px); opacity: 0; cursor: ew-resize; margin: 0; }
+
+  .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 900px) { .features { grid-template-columns: minmax(0, 1fr); } }
+  .feature { display: grid; gap: 4px; align-content: start; padding: 14px 0 0; border-top: 2px solid var(--accent); }
+  .feature h3 { font-size: 16px; font-weight: 600; }
+  .feature p { margin: 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
+  .section-title { font-size: 20px; font-weight: 600; }
+  footer { color: var(--muted); font-size: 12px; }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="tag">PhysioCare · Clinic floor</span>
+      <h1>ห้องกายภาพบำบัดทั้งคลินิกในมุมมองเดียว</h1>
+      <p>เตียง อุปกรณ์ ผู้ป่วย และนักกายภาพ ที่ระบบจัดสรรให้อัตโนมัติ เล่นดูได้ทั้งวันตั้งแต่ 08:00 ถึง 20:00</p>
+    </div>
+    <span class="demo-pill" id="demo-date">ข้อมูลทดลอง</span>
+  </header>
+
+  <section class="stage">
+    <div class="viewport">
+      <div id="scene"></div>
+      <div class="clock"><b id="clock">10:30</b><span id="clock-sub">ผู้ป่วยในคลินิก –</span></div>
+      <div class="hint">ลากเพื่อหมุน · Shift+ลากเพื่อเลื่อน · ล้อเมาส์เพื่อซูม · คลิกเตียงเพื่อดูรายละเอียด</div>
+    </div>
+
+    <aside class="side">
+      <div class="panel">
+        <div class="controls">
+          <button id="play" class="primary" type="button">▶ เล่นทั้งวัน</button>
+          <select id="speed" aria-label="ความเร็ว">
+            <option value="900">ช้า</option>
+            <option value="550" selected>ปกติ</option>
+            <option value="250">เร็ว</option>
+          </select>
+          <button id="reset" type="button">มุมกล้องเริ่มต้น</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>สถานะ ณ เวลานี้</h3>
+        <div class="kpis" id="kpis"></div>
+      </div>
+      <div class="panel">
+        <h3>กำลังรักษาอยู่</h3>
+        <div class="feed" id="feed"></div>
+      </div>
+      <div class="panel" id="detail">
+        <h3>รายละเอียด</h3>
+        <div class="empty">คลิกเตียง อุปกรณ์ หรือห้องในผัง</div>
+      </div>
+      <div class="panel">
+        <div class="legend" id="legend"></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="timeline" aria-label="เส้นเวลาของวัน">
+    <header><span>จำนวนผู้ป่วยในคลินิกตลอดวัน — คลิกหรือลากบนกราฟเพื่อไปยังเวลานั้น</span><span id="day-summary"></span></header>
+    <div class="chart-wrap">
+      <canvas id="chart"></canvas>
+      <input id="scrub" type="range" min="0" max="1" step="1" value="0" aria-label="เลือกเวลา">
+    </div>
+  </section>
+
+  <section style="display:grid;gap:12px">
+    <h2 class="section-title">สิ่งที่เห็นในผังนี้มาจากระบบจริง</h2>
+    <div class="features">
+      <div class="feature"><h3>จองไม่ชน ทั้งคน เครื่อง และเตียง</h3><p>ระบบตรวจกะงาน วันลา เตียง และเวลาทำความสะอาดเครื่องพร้อมกัน ฐานข้อมูลยังกันการจองซ้อนไว้อีกชั้น เมื่อชนจะเสนอเวลา คน หรือเตียงอื่นให้เลือก</p></div>
+      <div class="feature"><h3>จัดสรรอัตโนมัติตามโรค</h3><p>แนะนำนักกายภาพจากความเชี่ยวชาญที่ตรงกับการวินิจฉัย เลือกอุปกรณ์ตามแนวทางเวชปฏิบัติ และตัดเครื่องที่ห้ามใช้ เช่น เครื่องกระตุ้นไฟฟ้ากับผู้ใส่ pacemaker</p></div>
+      <div class="feature"><h3>ห้องและเตียงเป็นทรัพยากรจริง</h3><p>เครื่องที่ติดตั้งประจำห้องดึงนัดเข้าห้องนั้น ห้อง gym จำกัดจำนวนคนพร้อมกัน และผู้ป่วยเด็กได้ห้องเด็กก่อน</p></div>
+      <div class="feature"><h3>สถานะแบบ real-time</h3><p>เริ่มหรือจบการรักษาแล้วเครื่องกับเตียงเปลี่ยนสถานะเอง ทุกหน้าจอในคลินิกเห็นพร้อมกัน แจ้งชำรุดแล้วระบบแสดงนัดที่ต้องย้ายพร้อมเครื่องทดแทน</p></div>
+      <div class="feature"><h3>เวชระเบียนก่อน–หลังรักษา</h3><p>บันทึก Pain score และองศาการเคลื่อนไหว เทียบกับครั้งก่อนอัตโนมัติ ต้องประเมินก่อนจึงเริ่มรักษาได้ และลงนามแล้วแก้ไม่ได้</p></div>
+      <div class="feature"><h3>สิทธิ์ตามบทบาท และ PDPA</h3><p>ผู้ดูแลระบบ นักกายภาพ เจ้าหน้าที่ และผู้ป่วยเห็นข้อมูลต่างกัน การเปิดอ่านเวชระเบียนทุกครั้งถูกบันทึกไว้ตรวจสอบ</p></div>
+    </div>
+  </section>
+
+  <footer>ข้อมูลทั้งหมดในหน้านี้เป็นข้อมูลสมมติสำหรับสาธิต ไม่ใช่ข้อมูลผู้ป่วยจริง</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+<script id="demo-data" type="application/json">"__DATA__"</script>
+<script>
+/*__RENDERER__*/
+
+(function () {
+  const DATA = JSON.parse(document.getElementById('demo-data').textContent);
+  const snaps = DATA.snapshots;
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const tm = (iso) => new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  const dateTh = new Date(`${DATA.day.date}T12:00:00+07:00`).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  $('demo-date').textContent = `ข้อมูลทดลอง · ${dateTh}`;
+  $('day-summary').textContent = `${DATA.day.total} นัด · ใช้เตียง ${DATA.day.withBed} · ใช้อุปกรณ์ ${DATA.day.withEquipment}`;
+
+  // legend
+  const leg = [
+    ...Object.entries(STATE_COLORS).filter(([k]) => k !== 'out_of_service').map(([k, c]) => [c, `เตียง${STATE_TH[k]}`]),
+    ['#2563eb', 'อุปกรณ์กำลังใช้'], ['#ef4444', 'อุปกรณ์ชำรุด'], ['#f4c58f', 'ผู้ป่วย'],
+  ];
+  $('legend').innerHTML = leg.map(([c, l]) => `<span><i style="background:${c}"></i>${esc(l)}</span>`).join('')
+    + DATA.staff.map((s) => `<span><i style="background:${esc(s.color)};border-radius:50%"></i>${esc(s.name)}</span>`).join('');
+
+  // ---------- 3D ----------
+  const sceneTheme = () => ({
+    bg: css('--scene-bg'), ground: css('--scene-ground'), gridMajor: css('--scene-grid-major'), gridMinor: css('--scene-grid-minor'),
+    wall: css('--scene-wall'), storage: css('--scene-storage'),
+  });
+  let view = null;
+  if (window.THREE) {
+    try {
+      view = createClinic3D($('scene'), { THREE: window.THREE, theme: sceneTheme(), onSelect: showDetail });
+    } catch (e) {
+      $('scene').innerHTML = '<div class="noscene">เบราว์เซอร์นี้แสดงผล 3 มิติ (WebGL) ไม่ได้ ข้อมูลด้านขวายังเล่นตามเวลาได้ตามปกติ</div>';
+    }
+  } else {
+    $('scene').innerHTML = '<div class="noscene">โหลดไลบรารี 3 มิติไม่สำเร็จ ลองรีเฟรชหน้า</div>';
+  }
+  const retheme = () => view && view.setTheme(sceneTheme());
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { retheme(); drawChart(); });
+  new MutationObserver(() => { retheme(); drawChart(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // ---------- state ----------
+  let idx = Math.max(0, snaps.findIndex((s) => s.minute >= 10 * 60 + 30));
+  $('scrub').max = String(snaps.length - 1);
+
+  function show(i) {
+    idx = Math.max(0, Math.min(snaps.length - 1, i));
+    const s = snaps[idx];
+    $('scrub').value = String(idx);
+    $('clock').textContent = hhmm(s.minute);
+    $('clock-sub').textContent = `ผู้ป่วยในคลินิก ${s.kpis.patientsNow} คน`;
+    const k = s.kpis;
+    $('kpis').innerHTML = [
+      ['ผู้ป่วยตอนนี้', k.patientsNow], ['นักกายภาพที่รักษา', k.therapistsBusy], ['เตียงมีผู้ป่วย', `${k.bedsOccupied}/${k.bedsTotal}`],
+      ['อุปกรณ์กำลังใช้', k.equipmentInUse], ['อุปกรณ์ชำรุด/ซ่อม', k.equipmentDown], ['นัดที่เหลือวันนี้', k.remainingToday],
+    ].map(([l, v]) => `<div class="kpi"><small>${l}</small><b>${v}</b></div>`).join('');
+    const rows = [];
+    for (const r of s.rooms) {
+      for (const b of r.beds) if (b.current) rows.push({ a: b.current, where: `${r.code} · ${b.name}` });
+      for (const a of r.current || []) rows.push({ a, where: r.name });
+    }
+    rows.sort((x, y) => new Date(x.a.start_at) - new Date(y.a.start_at));
+    $('feed').innerHTML = rows.length ? rows.map(({ a, where }) => `
+      <div class="row"><span class="dot" style="background:${esc(a.therapist_color)}"></span>
+        <span>${esc(a.patient_name)} · ${esc(a.therapist_name)}<br><span class="where">${esc(where)}</span></span>
+        <span class="mono where">${tm(a.start_at)}–${tm(a.end_at)}</span></div>`).join('')
+      : '<div class="empty">ขณะนี้ไม่มีผู้ป่วยในห้องรักษา</div>';
+    if (view) view.update(s);
+    drawChart();
+  }
+
+  function showDetail(sel) {
+    const el = $('detail');
+    const head = '<h3>รายละเอียด</h3>';
+    if (!sel) { el.innerHTML = `${head}<div class="empty">คลิกเตียง อุปกรณ์ หรือห้องในผัง</div>`; return; }
+    const { kind, data } = sel;
+    if (kind === 'bed') {
+      el.innerHTML = `${head}<div><b>${esc(data.roomName)} · ${esc(data.name)}</b></div>
+        <div class="where">${esc(data.code)} · ${STATE_TH[data.state]}${data.notes ? ` · ${esc(data.notes)}` : ''}</div>
+        ${data.current ? `<div style="margin-top:6px">${esc(data.current.patient_name)} กับ ${esc(data.current.therapist_name)}<br><span class="mono where">${tm(data.current.start_at)}–${tm(data.current.end_at)}</span></div>` : ''}
+        ${data.next ? `<div class="where" style="margin-top:4px">ถัดไป ${tm(data.next.start_at)} ${esc(data.next.patient_name)}</div>` : ''}`;
+    } else if (kind === 'equipment') {
+      const st = { in_use: 'กำลังใช้งาน', available: 'พร้อมใช้งาน', broken: 'ชำรุด', maintenance: 'ส่งซ่อม' }[data.state];
+      el.innerHTML = `${head}<div><b>${esc(data.name)}</b></div><div class="where">${esc(data.asset_code)} · ${st}</div>
+        <div class="where">${data.room_id ? 'ติดตั้งประจำห้อง' : 'เคลื่อนย้ายได้'}</div>`;
+    } else if (kind === 'gymPatient') {
+      el.innerHTML = `${head}<div><b>${esc(data.patient_name)}</b> กับ ${esc(data.therapist_name)}</div><div class="where">${esc(data.roomName)} · ${tm(data.start_at)}–${tm(data.end_at)}</div>`;
+    } else {
+      el.innerHTML = `${head}<div><b>${esc(data.code)} · ${esc(data.name)}</b></div>
+        <div class="where">${data.beds.length} เตียง · รับพร้อมกัน ${data.capacity} คน · ${data.w}×${data.d} ม.</div>
+        <div style="margin-top:4px">ผู้ป่วยตอนนี้ ${data.occupancyNow}/${data.capacity}</div>`;
+    }
+  }
+
+  // ---------- chart ----------
+  function drawChart() {
+    const cv = $('chart');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.clientWidth;
+    const h = cv.clientHeight;
+    if (!w) return;
+    cv.width = w * dpr; cv.height = h * dpr;
+    const ctx = cv.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const L = 34, R = 20, T = 8, B = 18;
+    const maxV = Math.max(4, ...snaps.map((s) => s.kpis.patientsNow));
+    const yMax = Math.ceil(maxV / 2) * 2;
+    const x = (i) => L + (i / (snaps.length - 1)) * (w - L - R);
+    const y = (v) => T + (1 - v / yMax) * (h - T - B);
+    ctx.font = `11px ${css('--font-mono')}`;
+    ctx.fillStyle = css('--muted');
+    ctx.strokeStyle = css('--line');
+    ctx.lineWidth = 1;
+    for (let v = 0; v <= yMax; v += yMax / 2) {
+      ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(w - R, y(v)); ctx.stroke();
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(String(v), L - 6, y(v));
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    snaps.forEach((s, i) => { if (s.minute % 120 === 0) ctx.fillText(hhmm(s.minute), x(i), h - B + 4); });
+    ctx.beginPath();
+    snaps.forEach((s, i) => (i ? ctx.lineTo(x(i), y(s.kpis.patientsNow)) : ctx.moveTo(x(i), y(s.kpis.patientsNow))));
+    ctx.lineTo(x(snaps.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+    ctx.fillStyle = css('--chart-fill'); ctx.fill();
+    ctx.beginPath();
+    snaps.forEach((s, i) => (i ? ctx.lineTo(x(i), y(s.kpis.patientsNow)) : ctx.moveTo(x(i), y(s.kpis.patientsNow))));
+    ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.stroke();
+    // current time marker
+    ctx.strokeStyle = css('--ink'); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x(idx), T); ctx.lineTo(x(idx), h - B); ctx.stroke();
+    ctx.fillStyle = css('--accent');
+    ctx.beginPath(); ctx.arc(x(idx), y(snaps[idx].kpis.patientsNow), 4, 0, Math.PI * 2); ctx.fill();
+  }
+  new ResizeObserver(drawChart).observe($('chart'));
+  $('scrub').addEventListener('input', (e) => { stop(); show(Number(e.target.value)); });
+
+  // ---------- playback ----------
+  let timer = null;
+  function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ เล่นทั้งวัน'; }
+  $('play').addEventListener('click', () => {
+    if (timer) { stop(); return; }
+    if (idx >= snaps.length - 1) show(0);
+    $('play').textContent = '⏸ หยุด';
+    timer = setInterval(() => { if (idx >= snaps.length - 1) { stop(); return; } show(idx + 1); }, Number($('speed').value));
+  });
+  $('speed').addEventListener('change', () => { if (timer) { stop(); $('play').click(); } });
+  $('reset').addEventListener('click', () => view && view.frame());
+
+  show(idx);
+})();
+</script>
