@@ -366,7 +366,7 @@ function openBooking(reload) {
           <span class="font-medium">${esc(p.hn)}</span> ${esc(p.title || '')}${esc(p.first_name)} ${esc(p.last_name)}
           <span class="text-slate-500">${(p.diagnoses || []).map((d) => esc(d.code)).join(', ')}</span>
           ${(p.precautions || []).map((c) => `<span class="ml-1 rounded bg-rose-50 text-rose-700 text-[10px] px-1">${esc(c)}</span>`).join('')}
-        </button>`).join('') || '<div class="text-sm text-slate-400">ไม่พบ</div>';
+        </button>`).join('') || '<div class="text-sm text-slate-400">ไม่พบผู้ป่วย — <a href="#/patients" class="text-brand-600 hover:underline">ลงทะเบียนผู้ป่วยใหม่</a></div>';
       $$('[data-pid]', el).forEach((b) => b.addEventListener('click', () => selectPatient(list.find((p) => p.id === b.dataset.pid))));
     }, 250);
   });
@@ -379,8 +379,10 @@ function openBooking(reload) {
     const r = st.rec;
     st.therapistId = r.therapists[0]?.id;
     // เลือกล่วงหน้าเฉพาะหมวดที่แนวทางแนะนำ/เสริมได้ และไม่ติดข้อห้ามเด็ดขาด
+    // เลือกล่วงหน้าเฉพาะหมวดที่แนวทางแนะนำ/เสริมได้, ไม่ติดข้อห้ามเด็ดขาด และคลินิกมีเครื่องที่ใช้งานได้
+    const usableUnits = (e) => e.units.filter((u) => ['available', 'in_use'].includes(u.status)).length;
     st.categoryIds = new Set(r.equipment
-      .filter((e) => e.contraindication?.level !== 'absolute' && ['recommended', 'optional'].includes(e.guideline.recommendation))
+      .filter((e) => e.contraindication?.level !== 'absolute' && ['recommended', 'optional'].includes(e.guideline.recommendation) && usableUnits(e) > 0)
       .slice(0, 2).map((e) => e.category.id));
     $('#bk-rec', el).classList.remove('hidden');
     $('#bk-rec', el).innerHTML = `
@@ -404,14 +406,16 @@ function openBooking(reload) {
           <div class="text-xs uppercase tracking-wide text-slate-500 mb-1">อุปกรณ์ที่แนะนำ</div>
           <div class="space-y-2">${r.equipment.map((e) => {
             const abs = e.contraindication?.level === 'absolute';
+            const none = usableUnits(e) === 0;
+            const off = abs || none;
             return `
-            <label class="flex gap-3 items-start rounded-lg ring-1 ring-inset p-2 ${abs ? 'ring-rose-200 bg-rose-50/50 opacity-70' : 'ring-slate-200 cursor-pointer has-[:checked]:ring-brand-500 has-[:checked]:bg-brand-50'}">
-              <input type="checkbox" value="${e.category.id}" data-cat ${abs ? 'disabled' : ''} ${st.categoryIds.has(e.category.id) ? 'checked' : ''} class="mt-1">
+            <label class="flex gap-3 items-start rounded-lg ring-1 ring-inset p-2 ${abs ? 'ring-rose-200 bg-rose-50/50 opacity-70' : none ? 'ring-slate-200 bg-slate-50 opacity-60' : 'ring-slate-200 cursor-pointer has-[:checked]:ring-brand-500 has-[:checked]:bg-brand-50'}">
+              <input type="checkbox" value="${e.category.id}" data-cat ${off ? 'disabled' : ''} ${st.categoryIds.has(e.category.id) ? 'checked' : ''} class="mt-1">
               <div class="flex-1 text-sm">
                 <div class="flex flex-wrap items-center gap-1.5"><span class="font-medium">${esc(e.category.name_th)}</span>${recBadge(e.guideline.recommendation, e.guideline.grade)}${r.diagnoses.length > 1 && e.guideline.forDiagnosis ? `<span class="text-[11px] text-slate-500">สำหรับ ${esc(e.guideline.forDiagnosis)}</span>` : ''}</div>
                 <div class="text-xs text-slate-500">${esc(e.rationale || '')} ${e.guideline.source ? `<span class="text-[11px]">(${sourceLink(e.guideline.source)})</span>` : ''}</div>
                 ${e.contraindication ? `<div class="text-xs mt-0.5 ${abs ? 'text-rose-700' : 'text-amber-700'}">${abs ? '⛔ ห้ามใช้' : '⚠ ระวัง'}: ${e.contraindication.precautions.map(esc).join(', ')}</div>` : ''}
-                <div class="text-xs text-slate-400">${e.units.filter((u) => ['available', 'in_use'].includes(u.status)).length}/${e.units.length} เครื่องใช้งานได้</div>
+                <div class="text-xs ${none ? 'text-amber-700' : 'text-slate-400'}">${e.units.length === 0 ? 'ไม่มีเครื่องในคลินิก' : none ? 'ไม่มีเครื่องที่ใช้งานได้ (ชำรุด/ส่งซ่อม)' : `${usableUnits(e)}/${e.units.length} เครื่องใช้งานได้`}</div>
               </div>
             </label>`;
           }).join('') || '<div class="text-sm text-slate-400">ไม่มีข้อมูล mapping</div>'}</div>
@@ -442,7 +446,7 @@ function openBooking(reload) {
     const slots = await api.get(`/scheduling/slots?${qs}`);
     $('#bk-slots', el).innerHTML = slots.length
       ? slots.map((s, i) => `<button data-slot="${i}" class="rounded-lg px-3 py-1.5 text-sm ring-1 ring-inset ring-slate-300 hover:bg-brand-50">${fmtTime(s.startAt)}</button>`).join('')
-      : '<div class="text-sm text-slate-400">ไม่มีช่องว่างในวันนี้ — ลองเปลี่ยนวัน นักกายภาพ หรืออุปกรณ์</div>';
+      : `<div class="text-sm text-slate-400">ไม่มีช่องว่างในวันนี้ — ลองเปลี่ยนวัน นักกายภาพ หรือเอาอุปกรณ์บางรายการออก${st.categoryIds.size ? '' : ' (ตรวจว่านักกายภาพมีกะในวันนั้น และมีห้อง/เตียงว่าง)'}</div>`;
     $$('[data-slot]', el).forEach((b) => b.addEventListener('click', () => {
       $$('[data-slot]', el).forEach((x) => x.classList.remove('bg-brand-600', 'text-white'));
       b.classList.add('bg-brand-600', 'text-white');

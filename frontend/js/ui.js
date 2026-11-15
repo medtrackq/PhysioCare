@@ -94,3 +94,64 @@ export function showError(err) {
 export const imgOrIcon = (url, icon = '🛠️', cls = 'h-36') => (url
   ? `<img src="${esc(url)}" alt="" class="w-full ${cls} object-cover" loading="lazy">`
   : `<div class="w-full ${cls} grid place-items-center bg-slate-50 text-4xl text-slate-300">${icon}</div>`);
+
+/**
+ * ฟอร์มใน modal จากรายการฟิลด์
+ *   fields: [{ name, label, type: text|email|tel|date|number|color|select|textarea|checkbox, required, value,
+ *             options: [{value,label}], allowEmpty, full, hint, attrs }]
+ *   onSubmit(values, m) — values: ค่าว่างเป็น null, number แปลงเป็นตัวเลข, checkbox เป็น boolean
+ *   ข้อผิดพลาดจาก API แสดงใต้ฟอร์ม (ชื่อฟิลด์เป็นภาษาไทยตาม label)
+ */
+export function formModal(title, fields, onSubmit, { submitLabel = 'บันทึก', wide = false, intro = '' } = {}) {
+  const control = (f) => {
+    const v = f.value ?? '';
+    const req = f.required ? 'required' : '';
+    if (f.type === 'select') {
+      return `<select name="${f.name}" class="${input}" ${req}>${f.allowEmpty ? '<option value="">–</option>' : ''}${(f.options || [])
+        .map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    }
+    if (f.type === 'textarea') return `<textarea name="${f.name}" rows="2" class="${input}" ${req}>${esc(v)}</textarea>`;
+    if (f.type === 'checkbox') return `<input name="${f.name}" type="checkbox" class="mr-2 align-middle" ${v ? 'checked' : ''}>`;
+    return `<input name="${f.name}" type="${f.type || 'text'}" value="${esc(v)}" class="${input}" ${req} ${f.attrs || ''}>`;
+  };
+  const row = (f) => (f.type === 'checkbox'
+    ? `<label class="flex items-center text-sm ${f.full ? 'sm:col-span-2' : ''}">${control(f)}${esc(f.label)}</label>`
+    : `<label class="block text-sm ${f.full ? 'sm:col-span-2' : ''}"><span>${esc(f.label)}${f.required ? ' <span class="text-rose-500">*</span>' : ''}</span>${control(f)}${f.hint ? `<span class="block text-[11px] text-slate-500 mt-0.5">${esc(f.hint)}</span>` : ''}</label>`);
+  const m = modal(title, `
+    ${intro}
+    <form class="grid sm:grid-cols-2 gap-3">
+      ${fields.map(row).join('')}
+      <p data-form-error class="sm:col-span-2 text-sm text-rose-600 hidden"></p>
+      <div class="sm:col-span-2 pt-1">${btn(submitLabel, 'type="submit" data-submit')}</div>
+    </form>`, { wide });
+  const form = $('form', m.el);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const values = {};
+    for (const f of fields) {
+      const el = form.elements[f.name];
+      if (f.type === 'checkbox') { values[f.name] = el.checked; continue; }
+      const raw = el.value.trim();
+      values[f.name] = raw === '' ? null : f.type === 'number' ? Number(raw) : raw;
+    }
+    const errEl = $('[data-form-error]', m.el);
+    errEl.classList.add('hidden');
+    const submit = $('[data-submit]', m.el);
+    submit.disabled = true;
+    try {
+      await onSubmit(values, m);
+    } catch (err) {
+      const labels = Object.fromEntries(fields.map((f) => [f.name, f.label]));
+      const details = Array.isArray(err.details)
+        ? err.details.map((d) => `${labels[String(d.path).split('.').pop()] || d.path}: ${d.message}`).join(' · ') : '';
+      errEl.textContent = details ? `${err.message} — ${details}` : (err.message || 'บันทึกไม่สำเร็จ');
+      errEl.classList.remove('hidden');
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  return m;
+}
+
+/** ตัดค่า null ออก (ใช้ตอนสร้างใหม่) */
+export const compact = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined));

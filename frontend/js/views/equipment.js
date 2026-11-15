@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import {
   $, $$, esc, badge, EQUIPMENT_STATUS, pageHeader, btn, input, modal, toast, showError,
   fmtDate, fmtDateTime, fmtMoney, imgOrIcon, empty,
+  formModal, compact,
 } from '../ui.js';
 
 let state = { status: '', categoryId: '', q: '' };
@@ -9,7 +10,7 @@ let state = { status: '', categoryId: '', q: '' };
 export async function render(root, { session }) {
   const cats = await api.get('/equipment/categories');
   root.innerHTML = `
-    ${pageHeader('ทะเบียนอุปกรณ์', 'สถานะอัปเดตแบบ Real-time ผ่าน Server-Sent Events')}
+    ${pageHeader('ทะเบียนอุปกรณ์', 'สถานะอัปเดตแบบ Real-time ผ่าน Server-Sent Events', session.can('equipment:write') ? btn('+ เพิ่มอุปกรณ์', 'id="eq-new"') : '')}
     <div id="eq-counts" class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5"></div>
     <div class="flex flex-wrap gap-2 mb-5">
       <input id="eq-q" placeholder="ค้นหาชื่อ / รหัสครุภัณฑ์" class="${input} max-w-xs" value="${esc(state.q)}">
@@ -34,6 +35,8 @@ export async function render(root, { session }) {
         <div class="text-2xl font-bold mt-1" data-count="${k}">${counts[k] ?? 0}</div>
       </button>`).join('');
   };
+
+  $('#eq-new')?.addEventListener('click', () => openEquipmentForm(null, cats, load));
 
   root.addEventListener('click', (e) => {
     const st = e.target.closest('[data-status]');
@@ -84,7 +87,9 @@ async function openDetail(id, session, reload) {
   const canStatus = session.can('equipment:status');
   const canMaint = session.can('maintenance:write');
   const canUpload = session.can('media:upload') && (session.can('equipment:write') || canStatus);
+  const canEdit = session.can('equipment:write');
   const m = modal(`${e.name} (${e.asset_code})`, `
+    ${canEdit ? `<div class="mb-3">${btn('แก้ไขข้อมูลอุปกรณ์', 'id="eq-edit"', 'ghost')}</div>` : ''}
     <div class="grid lg:grid-cols-5 gap-6">
       <div class="lg:col-span-2 space-y-3">
         <div class="grid grid-cols-3 gap-2" id="gallery">
@@ -153,6 +158,11 @@ async function openDetail(id, session, reload) {
     </div>`, { wide: true });
 
   const refresh = () => { m.close(); reload(); openDetail(id, session, reload); };
+  $('#eq-edit', m.el)?.addEventListener('click', async () => {
+    const cats = await api.get('/equipment/categories');
+    m.close();
+    openEquipmentForm(e, cats, () => { reload(); openDetail(id, session, reload); });
+  });
 
   $('#eq-upload', m.el)?.addEventListener('change', async (ev) => {
     const fd = new FormData();
@@ -216,4 +226,34 @@ async function openDetail(id, session, reload) {
       refresh();
     } catch (err) { showError(err); }
   }));
+}
+
+/** ฟอร์มเพิ่ม/แก้ไขทะเบียนอุปกรณ์ */
+async function openEquipmentForm(e, cats, done) {
+  const rooms = await api.get('/facilities/rooms').catch(() => []);
+  const d = (v) => (v ? String(v).slice(0, 10) : '');
+  formModal(e ? `แก้ไข ${e.name}` : 'เพิ่มอุปกรณ์', [
+    { name: 'assetCode', label: 'รหัสครุภัณฑ์', required: true, value: e?.asset_code, hint: 'ไม่ซ้ำกับเครื่องอื่น เช่น EQ-US-003' },
+    { name: 'name', label: 'ชื่ออุปกรณ์', required: true, value: e?.name },
+    { name: 'categoryId', label: 'หมวดหมู่', type: 'select', required: true, value: e?.category_id,
+      options: cats.map((c) => ({ value: c.id, label: `${c.name_th} (${c.name_en})` })) },
+    { name: 'roomId', label: 'ห้องที่ติดตั้ง', type: 'select', allowEmpty: true, value: e?.room_id,
+      options: rooms.map((r) => ({ value: r.id, label: `${r.code} ${r.name}` })), hint: 'เว้นว่าง = เคลื่อนย้ายได้ · ผูกห้องแล้วจองได้เฉพาะนัดในห้องนั้น' },
+    { name: 'brand', label: 'ยี่ห้อ', value: e?.brand },
+    { name: 'model', label: 'รุ่น', value: e?.model },
+    { name: 'serialNo', label: 'Serial number', value: e?.serial_no },
+    { name: 'location', label: 'ที่เก็บ/ตำแหน่ง', value: e?.location },
+    { name: 'purchaseDate', label: 'วันที่ซื้อ', type: 'date', value: d(e?.purchase_date) },
+    { name: 'purchasePrice', label: 'ราคาซื้อ (บาท)', type: 'number', value: e?.purchase_price, attrs: 'min="0" step="0.01"' },
+    { name: 'vendor', label: 'ผู้ขาย/ผู้ให้บริการ', value: e?.vendor },
+    { name: 'warrantyExpiry', label: 'หมดประกัน', type: 'date', value: d(e?.warranty_expiry) },
+    { name: 'notes', label: 'หมายเหตุ', type: 'textarea', full: true, value: e?.notes },
+  ], async (v, m) => {
+    const body = { ...v, categoryId: Number(v.categoryId) };
+    if (e) await api.patch(`/equipment/${e.id}`, body);
+    else await api.post('/equipment', compact(body));
+    toast(e ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มอุปกรณ์แล้ว — คลิกการ์ดเพื่ออัปโหลดรูป', 'success');
+    m.close();
+    done();
+  }, { wide: true, submitLabel: e ? 'บันทึก' : 'เพิ่มอุปกรณ์' });
 }

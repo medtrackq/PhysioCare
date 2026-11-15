@@ -6,6 +6,7 @@ const ROLE_TH = { admin: 'ผู้ดูแลระบบ', therapist: 'นั
 // เมนูแสดงตามสิทธิ์ (permission) ไม่ใช่ตาม role ตรง ๆ
 const ROUTES = [
   { path: 'dashboard', label: 'ภาพรวม', icon: '📊', perm: ['appointments:read_all', 'reports:view'], load: () => import('./views/dashboard.js') },
+  { path: 'patients', label: 'ผู้ป่วย', icon: '🧑‍🦽', perm: ['patients:read'], load: () => import('./views/patients.js') },
   { path: 'schedule', label: 'ตารางนัดหมาย', icon: '🗓️', perm: ['appointments:read_all'], load: () => import('./views/schedule.js') },
   { path: 'equipment', label: 'อุปกรณ์', icon: '🛠️', perm: ['equipment:read'], load: () => import('./views/equipment.js') },
   { path: 'facilities3d', label: 'ผัง 3D', icon: '🧊', perm: ['equipment:read'], load: () => import('./views/facilities3d.js') },
@@ -38,6 +39,7 @@ async function route() {
   const r = routes.find((x) => x.path === path) || routes.find((x) => !x.hidden);
   if (!r) { $('#view').innerHTML = '<p>ไม่มีเมนูที่เข้าถึงได้</p>'; return; }
   renderNav(r.path);
+  $('#modal-root').innerHTML = ''; // ปิด popup ที่ค้างจากหน้าก่อน ไม่ให้บังหน้าใหม่
   if (typeof cleanup === 'function') cleanup();
   cleanup = null;
   $('#view').innerHTML = '<div class="text-slate-400 text-sm">กำลังโหลด…</div>';
