@@ -102,17 +102,22 @@ export const imgOrIcon = (url, icon = '🛠️', cls = 'h-36') => (url
  *   onSubmit(values, m) — values: ค่าว่างเป็น null, number แปลงเป็นตัวเลข, checkbox เป็น boolean
  *   ข้อผิดพลาดจาก API แสดงใต้ฟอร์ม (ชื่อฟิลด์เป็นภาษาไทยตาม label)
  */
-export function formModal(title, fields, onSubmit, { submitLabel = 'บันทึก', wide = false, intro = '' } = {}) {
+export function formModal(title, fields, onSubmit, { submitLabel = 'บันทึก', wide = false, intro = '', locked = [] } = {}) {
+  // locked: ฟิลด์ที่ระบบโรงพยาบาล (HIS) เป็นเจ้าของ — แสดงแต่แก้ไม่ได้ และไม่ส่งไปบันทึก
+  const lockSet = new Set(locked);
+  fields = fields.map((f) => (lockSet.has(f.name) ? { ...f, locked: true, required: false, hint: 'ข้อมูลจากระบบโรงพยาบาล — แก้ที่ HIS', attrs: `${f.attrs || ''} disabled` } : f));
+  if (lockSet.size) intro = `<div class="mb-3 rounded-lg bg-sky-50 text-sky-800 text-sm px-3 py-2">🔗 ข้อมูลนี้ซิงก์จากระบบโรงพยาบาล ช่องสีเทาแก้ที่ HIS ส่วนช่องอื่นแก้ในระบบนี้ได้ตามปกติ</div>${intro}`;
   const control = (f) => {
     const v = f.value ?? '';
     const req = f.required ? 'required' : '';
+    const dis = f.locked ? 'disabled' : '';
     if (f.type === 'select') {
-      return `<select name="${f.name}" class="${input}" ${req}>${f.allowEmpty ? '<option value="">–</option>' : ''}${(f.options || [])
+      return `<select name="${f.name}" class="${input} disabled:bg-slate-100 disabled:text-slate-500" ${req} ${dis}>${f.allowEmpty ? '<option value="">–</option>' : ''}${(f.options || [])
         .map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
     }
-    if (f.type === 'textarea') return `<textarea name="${f.name}" rows="2" class="${input}" ${req}>${esc(v)}</textarea>`;
-    if (f.type === 'checkbox') return `<input name="${f.name}" type="checkbox" class="mr-2 align-middle" ${v ? 'checked' : ''}>`;
-    return `<input name="${f.name}" type="${f.type || 'text'}" value="${esc(v)}" class="${input}" ${req} ${f.attrs || ''}>`;
+    if (f.type === 'textarea') return `<textarea name="${f.name}" rows="2" class="${input} disabled:bg-slate-100 disabled:text-slate-500" ${req} ${dis}>${esc(v)}</textarea>`;
+    if (f.type === 'checkbox') return `<input name="${f.name}" type="checkbox" class="mr-2 align-middle" ${v ? 'checked' : ''} ${dis}>`;
+    return `<input name="${f.name}" type="${f.type || 'text'}" value="${esc(v)}" class="${input} disabled:bg-slate-100 disabled:text-slate-500" ${req} ${f.attrs || ''}>`;
   };
   const row = (f) => (f.type === 'checkbox'
     ? `<label class="flex items-center text-sm ${f.full ? 'sm:col-span-2' : ''}">${control(f)}${esc(f.label)}</label>`
@@ -129,6 +134,7 @@ export function formModal(title, fields, onSubmit, { submitLabel = 'บันท
     e.preventDefault();
     const values = {};
     for (const f of fields) {
+      if (f.locked) continue;
       const el = form.elements[f.name];
       if (f.type === 'checkbox') { values[f.name] = el.checked; continue; }
       const raw = el.value.trim();

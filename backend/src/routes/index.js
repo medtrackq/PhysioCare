@@ -4,6 +4,9 @@ const sse = require('../realtime/sse');
 
 router.get('/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 router.use('/auth', require('./auth.routes'));
+// HIS ส่งข้อมูลเข้า: ยืนยันตัวด้วย API key ของ connector (ไม่ใช้ JWT)
+const integration = require('./integration.routes');
+router.use('/integration/inbound', integration.inboundRouter);
 
 // ทุก route ด้านล่างต้อง login
 router.use(authenticate);
@@ -18,6 +21,7 @@ router.use('/emr', require('./emr.routes'));
 router.use('/media', require('./media.routes'));
 router.use('/reports', require('./reports.routes'));
 router.use('/knowledge', require('./knowledge.routes'));
+router.use('/integration', integration.router);
 router.use('/', require('./scheduling.routes'));
 
 module.exports = router;

@@ -1,3 +1,4 @@
+const { assertEditable } = require('../services/integration/ownership');
 const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
@@ -104,6 +105,7 @@ router.patch('/:id', authorize('equipment:write'), validate({ params: idParam, b
   const b = req.valid.body;
   const keys = Object.keys(b).filter((k) => b[k] !== undefined);
   if (!keys.length) return res.json({});
+  await assertEditable(db, 'equipment', req.valid.params.id, b);
   const { rows: [eq] } = await db.query(
     `UPDATE equipment SET ${keys.map((k, i) => `${COLS[k]} = $${i + 2}`).join(', ')} WHERE id = $1 RETURNING *`,
     [req.valid.params.id, ...keys.map((k) => b[k])]);

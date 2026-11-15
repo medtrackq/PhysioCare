@@ -4,6 +4,7 @@
  *  - ผังห้อง/เตียงแบบ real-time: ใครอยู่เตียงไหน ตอนนี้ และนัดถัดไป
  *  - ปิดเตียงซ่อม -> แจ้งนัดในอนาคตที่ได้รับผลกระทบ + เตียงทดแทน
  */
+const { assertEditable } = require('../services/integration/ownership');
 const router = require('express').Router();
 const { z } = require('zod');
 const db = require('../db');
@@ -127,6 +128,7 @@ router.patch('/rooms/:id', authorize('equipment:write'), validate({ params: z.ob
   const b = req.valid.body;
   const keys = Object.keys(b).filter((k) => b[k] !== undefined);
   if (!keys.length) return res.json({});
+  await assertEditable(db, 'room', req.valid.params.id, b);
   const { rows: [r] } = await db.query(
     `UPDATE rooms SET ${keys.map((k, i) => `${ROOM_COLS[k]} = $${i + 2}`).join(', ')} WHERE id = $1 RETURNING *`,
     [req.valid.params.id, ...keys.map((k) => b[k])]);
@@ -165,6 +167,7 @@ router.patch('/beds/:id', authorize('equipment:write'), validate({ params: z.obj
   const b = req.valid.body;
   const keys = Object.keys(b).filter((k) => b[k] !== undefined);
   if (!keys.length) return res.json({});
+  await assertEditable(db, 'bed', req.valid.params.id, b);
   const { rows: [r] } = await db.query(
     `UPDATE beds SET ${keys.map((k, i) => `${BED_COLS[k]} = $${i + 2}`).join(', ')} WHERE id = $1 RETURNING *`,
     [req.valid.params.id, ...keys.map((k) => b[k])]);

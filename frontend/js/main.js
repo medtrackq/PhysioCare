@@ -16,6 +16,7 @@ const ROUTES = [
   { path: 'emr', label: 'เวชระเบียน', icon: '📝', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
   { path: 'progress', label: 'ความก้าวหน้า', icon: '📈', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
   { path: 'my', label: 'นัดหมายของฉัน', icon: '🗓️', perm: ['appointments:read_own'], load: () => import('./views/my.js') },
+  { path: 'integration', label: 'เชื่อมต่อ HIS', icon: '🔗', perm: ['integration:manage'], load: () => import('./views/integration.js') },
   { path: 'admin', label: 'ผู้ใช้ & ตั้งค่า', icon: '⚙️', perm: ['users:manage', 'settings:manage'], load: () => import('./views/admin.js') },
   { path: 'reports', label: 'รายงานสถิติ', icon: '📑', perm: ['reports:view'], load: () => import('./views/admin.js') },
 ];

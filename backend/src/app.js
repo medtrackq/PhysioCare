@@ -27,7 +27,10 @@ function createApp() {
       next();
     });
   }
-  app.use(express.json({ limit: '1mb' }));
+  const json = express.json({ limit: '1mb' });
+  // FHIR Bundle จาก HIS อาจใหญ่กว่าปกติ และใช้ content-type application/fhir+json
+  const fhirJson = express.json({ limit: '10mb', type: ['application/json', 'application/fhir+json'] });
+  app.use((req, res, next) => (req.path.startsWith('/api/integration/') ? fhirJson : json)(req, res, next));
   app.use('/api', require('./routes'));
   app.use('/api', (_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'ไม่พบ endpoint' } }));
   app.use(express.static(config.frontendDir, { extensions: ['html'] }));

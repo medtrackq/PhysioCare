@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, hisLocked } from '../api.js';
 import {
   $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDate, fmtTime, bkkToday, imgOrIcon, formModal, compact,
 } from '../ui.js';
@@ -104,7 +104,7 @@ export async function render(root, { session }) {
 }
 
 /** เพิ่ม/แก้ไขข้อมูลบุคลากร */
-function openStaffForm(s, done) {
+async function openStaffForm(s, done) {
   const d = (v) => (v ? String(v).slice(0, 10) : '');
   formModal(s ? `แก้ไข ${s.first_name} ${s.last_name}` : 'เพิ่มบุคลากร', [
     { name: 'employeeCode', label: 'รหัสพนักงาน', required: true, value: s?.employee_code },
@@ -127,7 +127,7 @@ function openStaffForm(s, done) {
     toast(s ? 'บันทึกแล้ว' : 'เพิ่มบุคลากรแล้ว — กำหนดความเชี่ยวชาญและสร้างกะต่อได้เลย', 'success');
     m.close();
     done();
-  }, { wide: true, submitLabel: s ? 'บันทึก' : 'เพิ่มบุคลากร' });
+  }, { wide: true, submitLabel: s ? 'บันทึก' : 'เพิ่มบุคลากร', locked: await hisLocked('staff', s) });
 }
 
 /** กำหนดความเชี่ยวชาญ (ใช้ในระบบแนะนำนักกายภาพตามโรค) */

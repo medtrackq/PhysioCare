@@ -41,3 +41,12 @@ export const api = {
 
 export function setToken(t) { token = t; store.set(t); }
 export const hasToken = () => Boolean(token);
+
+// ---------- ข้อมูลที่ซิงก์จากระบบโรงพยาบาล (HIS) ----------
+let ownership = null;
+/** ชื่อฟิลด์ที่ต้องล็อกในฟอร์ม ถ้า record นี้มาจาก HIS (managed_by) */
+export async function hisLocked(entity, record) {
+  if (!record?.managed_by) return [];
+  ownership ||= await api.get('/integration/field-ownership').catch(() => ({}));
+  return ownership[entity] || [];
+}

@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, hisLocked } from '../api.js';
 import {
   $, $$, esc, badge, EQUIPMENT_STATUS, pageHeader, btn, input, modal, toast, showError,
   fmtDate, fmtDateTime, fmtMoney, imgOrIcon, empty,
@@ -255,5 +255,5 @@ async function openEquipmentForm(e, cats, done) {
     toast(e ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มอุปกรณ์แล้ว — คลิกการ์ดเพื่ออัปโหลดรูป', 'success');
     m.close();
     done();
-  }, { wide: true, submitLabel: e ? 'บันทึก' : 'เพิ่มอุปกรณ์' });
+  }, { wide: true, submitLabel: e ? 'บันทึก' : 'เพิ่มอุปกรณ์', locked: await hisLocked('equipment', e) });
 }

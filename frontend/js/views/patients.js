@@ -1,4 +1,4 @@
-import { api } from '../api.js';
+import { api, hisLocked } from '../api.js';
 import {
   $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDate, empty, formModal, compact,
 } from '../ui.js';
@@ -40,7 +40,7 @@ export async function render(root, { session }) {
 }
 
 /** ลงทะเบียน/แก้ไขข้อมูลผู้ป่วย */
-function openPatientForm(p, done) {
+async function openPatientForm(p, done) {
   const ec = p?.emergency_contact || {};
   formModal(p ? `แก้ไข ${p.first_name} ${p.last_name}` : 'ลงทะเบียนผู้ป่วย', [
     { name: 'hn', label: 'HN', required: true, value: p?.hn, hint: 'เลขประจำตัวผู้ป่วยของคลินิก (ไม่ซ้ำ)' },
@@ -62,7 +62,7 @@ function openPatientForm(p, done) {
     toast(p ? 'บันทึกแล้ว' : 'ลงทะเบียนแล้ว — เพิ่มการวินิจฉัยและข้อควรระวังต่อได้เลย', 'success');
     m.close();
     done(saved.id || p.id);
-  }, { wide: true, submitLabel: p ? 'บันทึก' : 'ลงทะเบียน' });
+  }, { wide: true, submitLabel: p ? 'บันทึก' : 'ลงทะเบียน', locked: await hisLocked('patient', p) });
 }
 
 /** รายละเอียดผู้ป่วย: ข้อมูล, การวินิจฉัย (ICD-10), ข้อควรระวัง */

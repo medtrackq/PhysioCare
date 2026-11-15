@@ -94,6 +94,7 @@ const apptBlock = (a, style, compact = false) => `
 export async function render(root, { session }) {
   root.innerHTML = `
     ${pageHeader('ตารางนัดหมาย', '', session.can('appointments:write') ? btn('+ จองนัด', 'id="sc-new"') : '')}
+    <div id="sc-referrals"></div>
     <div class="flex flex-wrap items-center gap-2 mb-3">
       <div class="inline-flex rounded-lg ring-1 ring-inset ring-slate-300 bg-white overflow-hidden" role="tablist">
         ${MODES.map(([k, l]) => `<button data-mode="${k}" class="px-3 py-1.5 text-sm">${l}</button>`).join('')}
@@ -274,6 +275,27 @@ export async function render(root, { session }) {
   $('#sc-date').addEventListener('change', (e) => { if (e.target.value) { currentDate = e.target.value; load(); } });
   $('#sc-new')?.addEventListener('click', () => openBooking(load));
 
+  // ใบส่งกายภาพจากระบบโรงพยาบาล (แสดงเฉพาะเมื่อเชื่อมต่อ HIS และมีรายการรอนัด)
+  const PRIO = { urgent: 'ด่วน', asap: 'ด่วนมาก', stat: 'ฉุกเฉิน' };
+  async function loadReferrals() {
+    const rows = await api.get('/integration/referrals?status=pending').catch(() => []);
+    const box = $('#sc-referrals');
+    if (!box) return;
+    box.innerHTML = rows.length ? `<div class="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm">
+      <div class="font-medium text-sky-900 mb-2">📨 ใบส่งกายภาพจากระบบโรงพยาบาล รอนัด ${rows.length} ราย</div>
+      <div class="flex flex-wrap gap-2">${rows.slice(0, 8).map((r) => `
+        <div class="rounded-lg bg-white ring-1 ring-sky-200 px-2.5 py-1.5 flex items-center gap-2">
+          <span>${esc(r.patient_name)} <span class="text-xs text-slate-500">${esc(r.icd10_code || '')}${r.sessions_requested ? ` · ${r.sessions_requested} ครั้ง` : ''}</span>
+          ${PRIO[r.priority] ? `<span class="text-xs text-rose-700">${PRIO[r.priority]}</span>` : ''}</span>
+          ${session.can('appointments:write') ? `<button type="button" data-ref-book="${r.id}" data-hn="${esc(r.hn)}" class="text-xs text-brand-700 hover:underline">จองนัด</button>` : ''}
+        </div>`).join('')}${rows.length > 8 ? `<span class="text-xs text-slate-500 self-center">และอีก ${rows.length - 8} ราย</span>` : ''}</div></div>` : '';
+  }
+  $('#sc-referrals').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ref-book]');
+    if (b) openBooking(() => { load(); loadReferrals(); }, { query: b.dataset.hn, referralId: b.dataset.refBook });
+  });
+  loadReferrals();
+
   let t;
   const onLive = () => { clearTimeout(t); t = setTimeout(load, 300); };
   window.addEventListener('appointment_changed', onLive);
@@ -330,7 +352,7 @@ async function openAppointment(id, session, reload) {
 // ---------------------------------------------------------------------
 // Booking wizard: ผู้ป่วย -> คำแนะนำ -> ช่องเวลา -> ตรวจ conflict -> จอง
 // ---------------------------------------------------------------------
-function openBooking(reload) {
+function openBooking(reload, { query = '', referralId = null } = {}) {
   const st = { patient: null, rec: null, therapistId: null, categoryIds: new Set(), equipment: {}, date: currentDate, duration: 45, slot: null };
   const m = modal('จองนัดหมายอัจฉริยะ', `
     <div class="space-y-5">
@@ -370,6 +392,7 @@ function openBooking(reload) {
       $$('[data-pid]', el).forEach((b) => b.addEventListener('click', () => selectPatient(list.find((p) => p.id === b.dataset.pid))));
     }, 250);
   });
+  if (query) { const q = $('#bk-q', el); q.value = query; q.dispatchEvent(new Event('input')); }
 
   // ----- 2. ระบบแนะนำ -----
   async function selectPatient(p) {
@@ -535,6 +558,7 @@ function openBooking(reload) {
     if (ack && !ack.checked) { toast('กรุณายืนยันการรับทราบข้อควรระวัง', 'warn'); return; }
     try {
       await api.post('/appointments', payload({ acknowledgeWarnings: Boolean(ack?.checked) }));
+      if (referralId) await api.patch(`/integration/referrals/${referralId}`, { status: 'scheduled' }).catch(() => {});
       toast('จองนัดสำเร็จ', 'success');
       m.close();
       currentDate = st.date;
