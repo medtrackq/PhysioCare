@@ -13,6 +13,8 @@ process.env.UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-upload-'));
 const { pool } = require('../src/db');
 const { createApp } = require('../src/app');
 const outbox = require('../src/services/integration/outbox.service');
+const jwe = require('../src/services/integration/jwe');
+const crypto = require('node:crypto');
 
 const SAMPLE = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'integration', 'sample-bundle.json'), 'utf8'));
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -65,7 +67,9 @@ before(async () => {
     let data = '';
     req.on('data', (c) => { data += c; });
     req.on('end', () => {
-      hisLog.push({ method: req.method, url: req.url, auth: req.headers.authorization, body: data ? JSON.parse(data) : null });
+      let body = null;
+      try { body = data ? JSON.parse(data) : null; } catch { body = data; }
+      hisLog.push({ method: req.method, url: req.url, auth: req.headers.authorization, type: req.headers['content-type'], body });
       const u = new URL(req.url, 'http://x');
       if (req.method === 'GET' && u.pathname === '/fhir/metadata') { res.end(JSON.stringify({ resourceType: 'CapabilityStatement', fhirVersion: '4.0.1' })); return; }
       if (req.method === 'GET' && u.pathname === '/fhir/Location') {
@@ -290,5 +294,87 @@ describe('HIS integration (FHIR R4)', () => {
     assert.equal(r.status, 200);
     assert.equal(r.body.stats.linked, 8, JSON.stringify(r.body.items));
     assert.deepEqual(await one(counts), before);
+  });
+});
+
+describe('HIS integration — second encryption layer (JWE A256GCM)', () => {
+  const KEY = crypto.randomBytes(32).toString('base64');
+  let c3;
+  const send = (raw, key) => fetch(`${base}/api/integration/inbound/sec-his/fhir`, {
+    method: 'POST', headers: { 'X-Api-Key': key, 'Content-Type': 'application/jose' }, body: raw,
+  });
+
+  before(async () => {
+    process.env.HIS_TEST_PAYLOAD_KEY = KEY;
+    const r = await api('POST', '/api/integration/connectors', {
+      token: tokens.admin,
+      body: { code: 'sec-his', name: 'HIS เข้ารหัส', isEnabled: true, baseUrl: hisBase,
+        settings: { outbound: { appointments: true }, encryption: { mode: 'required', keyEnv: 'HIS_TEST_PAYLOAD_KEY' } } },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.encryption_key_status, 'ok');
+    c3 = r.body;
+  });
+
+  test('settings refuse "required" without a key variable', async () => {
+    const r = await api('PATCH', `/api/integration/connectors/${c3.id}`, { token: tokens.admin, body: { settings: { encryption: { mode: 'required' } } } });
+    assert.equal(r.status, 400);
+  });
+
+  test('plain JSON is refused when encryption is required', async () => {
+    const r = await api('POST', '/api/integration/inbound/sec-his/fhir', { body: SAMPLE, headers: { 'X-Api-Key': c3.inboundKey } });
+    assert.equal(r.status, 415);
+    assert.equal(r.body.error.code, 'ENCRYPTION_REQUIRED');
+  });
+
+  test('encrypted request is accepted and the response is encrypted too', async () => {
+    const res = await send(jwe.encrypt(SAMPLE, KEY, { kid: 'sec-his' }), c3.inboundKey);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /application\/jose/);
+    const text = await res.text();
+    assert.doesNotMatch(text, /HN-67/, 'no patient data in clear text');
+    const { payload } = jwe.decrypt(text, KEY, { kid: 'sec-his', checkReplay: false });
+    assert.equal(payload.stats.total, 9);
+  });
+
+  test('replay, tampering, wrong key, wrong connector and old messages are rejected', async () => {
+    const msg = jwe.encrypt(SAMPLE, KEY, { kid: 'sec-his' });
+    assert.equal((await send(msg, c3.inboundKey)).status, 200);
+    const replay = await send(msg, c3.inboundKey);
+    assert.equal(replay.status, 400);
+    assert.match((await replay.json()).error.message, /replay/);
+
+    const parts = jwe.encrypt(SAMPLE, KEY, { kid: 'sec-his' }).split('.');
+    parts[3] = (parts[3][0] === 'A' ? 'B' : 'A') + parts[3].slice(1);
+    assert.equal((await send(parts.join('.'), c3.inboundKey)).status, 400, 'tampered ciphertext');
+
+    assert.equal((await send(jwe.encrypt(SAMPLE, crypto.randomBytes(32).toString('base64'), { kid: 'sec-his' }), c3.inboundKey)).status, 400, 'wrong key');
+    assert.equal((await send(jwe.encrypt(SAMPLE, KEY, { kid: 'main-his' }), c3.inboundKey)).status, 400, 'message for another connector');
+
+    const realNow = Date.now;
+    Date.now = () => realNow() - 10 * 60_000;
+    const old = jwe.encrypt(SAMPLE, KEY, { kid: 'sec-his' });
+    Date.now = realNow;
+    assert.equal((await send(old, c3.inboundKey)).status, 400, 'older than 5 minutes');
+  });
+
+  test('outbound appointments are encrypted for this connector', async () => {
+    await pool.query("UPDATE integration_connectors SET is_enabled = false WHERE code <> 'sec-his'");
+    hisStatus = 200;
+    const day = nextWorkday(4);
+    const booked = await api('POST', '/api/appointments', {
+      token: tokens.front,
+      body: { patientId: PAT_PRASERT, therapistId: PT_SOMCHAI, startAt: `${day}T13:00:00+07:00`, endAt: `${day}T13:45:00+07:00`, acknowledgeWarnings: true },
+    });
+    assert.equal(booked.status, 201, JSON.stringify(booked.body));
+    const s = await outbox.processOutbox();
+    assert.equal(s.sent, 1);
+    const put = hisLog.filter((x) => x.method === 'PUT').at(-1);
+    assert.match(put.type, /application\/jose/);
+    assert.equal(typeof put.body, 'string');
+    const { header, payload } = jwe.decrypt(put.body, KEY, { kid: 'sec-his', checkReplay: false });
+    assert.equal(header.enc, 'A256GCM');
+    assert.equal(payload.resourceType, 'Appointment');
+    assert.equal(payload.identifier[0].value, booked.body.appointment.id);
   });
 });

@@ -8,6 +8,7 @@
 const db = require('../../db');
 const fhir = require('./fhir');
 const { authHeaders } = require('./sync.service');
+const jwe = require('./jwe');
 
 const MAX_ATTEMPTS = 10;
 const LEASE_MIN = 5;
@@ -76,10 +77,13 @@ async function processOutbox({ limit = 20, connectorId = null } = {}) {
         continue;
       }
       const url = `${connector.base_url.replace(/\/+$/, '')}/${job.resource_type}?identifier=${encodeURIComponent(built.identifier)}`;
+      // ชั้นที่ 2: เข้ารหัสเนื้อหาด้วย JWE เมื่อการเชื่อมต่อนี้บังคับเข้ารหัส
+      const enc = connector.settings?.encryption;
+      const encrypt = enc?.mode === 'required';
       const res = await fetch(url, {
         method: 'PUT',
-        headers: { ...authHeaders(connector), 'Content-Type': 'application/fhir+json' },
-        body: JSON.stringify(built.resource),
+        headers: { ...authHeaders(connector), 'Content-Type': encrypt ? 'application/jose' : 'application/fhir+json' },
+        body: encrypt ? jwe.encrypt(built.resource, process.env[enc.keyEnv], { kid: connector.code }) : JSON.stringify(built.resource),
         signal: AbortSignal.timeout(20_000),
         redirect: 'error',
       });

@@ -75,6 +75,7 @@ export async function render(root) {
           ${btn('นำเข้าไฟล์ FHIR', 'data-act="import"', 'ghost')}
           ${c.base_url ? btn('ดึงจาก HIS', 'data-act="pull"', 'ghost') + btn('ทดสอบการเชื่อมต่อ', 'data-act="test"', 'ghost') : ''}
           ${btn('ประวัติ', 'data-act="runs"', 'ghost')}
+          ${btn('สร้างกุญแจเข้ารหัส', 'data-act="genkey"', 'ghost')}
           ${btn('ตั้งค่า', 'data-act="edit"', 'ghost')}
         </div>
       </div>
@@ -84,6 +85,7 @@ export async function render(root) {
         <div class="rounded-lg bg-slate-50 p-3"><div class="text-xs text-slate-500 mb-1">ส่งกลับ HIS</div>
           ${OUTBOUND.map(([k, l]) => (s.outbound?.[k] ? `<span>${l}</span>` : `<span class="text-slate-400 line-through">${l}</span>`)).join('<br>')}
           <div class="text-xs mt-2">${['pending', 'failed', 'dead', 'sent'].filter((k) => ob[k]).map((k) => `${OUTBOX_TH[k]} ${ob[k]}`).join(' · ') || 'ยังไม่มีงาน'}</div>
+          <div class="text-xs mt-1">${encLine(c)}</div>
           ${c.auth_secret_env ? `<div class="text-xs mt-1 ${c.auth_env_present ? 'text-slate-500' : 'text-rose-600'}">token: ${esc(c.auth_secret_env)} ${c.auth_env_present ? '✓' : '(ยังไม่ได้ตั้งค่าในเซิร์ฟเวอร์)'}</div>` : ''}</div>
         <div class="rounded-lg bg-slate-50 p-3"><div class="text-xs text-slate-500 mb-1">ข้อมูลที่ซิงก์แล้ว</div>${refs}
           ${run ? `<div class="text-xs text-slate-500 mt-2">ล่าสุด ${fmtDateTime(run.started_at)} · ${run.mode}${run.dry_run ? ' (ทดลอง)' : ''} · ${run.status}</div>` : ''}</div>
@@ -96,6 +98,30 @@ export async function render(root) {
           <div class="text-xs text-slate-500">ส่ง FHIR Bundle หรือ resource เดี่ยว (Content-Type: application/fhir+json) · เติม ?dryRun=true เพื่อทดลองโดยไม่บันทึก</div>
         </div></details>
     </div>`);
+  }
+
+  function encLine(c) {
+    const e = c.settings?.encryption;
+    if (e?.mode !== 'required') return '<span class="text-slate-500">เข้ารหัสชั้นที่ 2: ปิด (ใช้ HTTPS อย่างเดียว)</span>';
+    const st = { ok: '✓ พร้อม', missing: '(ยังไม่ได้ตั้งค่าในเซิร์ฟเวอร์)', invalid: '(ค่ากุญแจไม่ถูกต้อง ต้องยาว 32 ไบต์)' }[c.encryption_key_status] || '';
+    return `<span class="${c.encryption_key_status === 'ok' ? 'text-emerald-700' : 'text-rose-600'}">🔐 เข้ารหัสชั้นที่ 2: บังคับ · ${esc(e.keyEnv)} ${st}</span>`;
+  }
+
+  function showNewKey(c) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = btoa(String.fromCharCode(...bytes));
+    const envName = c.settings?.encryption?.keyEnv || 'HIS_PAYLOAD_KEY';
+    const m = modal('กุญแจเข้ารหัสชั้นที่ 2', `
+      <p class="text-sm mb-2">สร้างในเบราว์เซอร์นี้ ระบบ<b>ไม่ได้บันทึก</b>ค่านี้ไว้ — ทำ 2 อย่างก่อนปิดหน้าต่าง:</p>
+      <ol class="text-sm list-decimal pl-5 mb-3 space-y-1">
+        <li>Railway → Variables → เพิ่ม <code>${esc(envName)}</code> = ค่าด้านล่าง (ระบบจะ deploy ใหม่เอง)</li>
+        <li>ส่งค่าเดียวกันให้ฝ่าย IT โรงพยาบาลผ่านช่องทางที่ปลอดภัย (เช่น แจ้งด้วยวาจา/password manager) <b>ไม่ส่งทางอีเมลหรือแชตปกติ</b></li>
+      </ol>
+      <div class="flex gap-2"><input id="ig-enckey" class="${input} font-mono text-xs" readonly value="${esc(key)}">${btn('คัดลอก', 'id="ig-enccopy"')}</div>
+      <p class="text-xs text-slate-500 mt-2">เปลี่ยนกุญแจเมื่อสงสัยว่ารั่ว: สร้างใหม่ → ตั้งค่าทั้งสองฝั่งพร้อมกัน ระหว่างนั้นข้อความที่ใช้กุญแจเก่าจะถูกปฏิเสธ</p>`);
+    $('#ig-enccopy', m.el).addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(key); toast('คัดลอกแล้ว', 'success'); } catch { $('#ig-enckey', m.el).select(); }
+    });
   }
 
   // ---------- connector form ----------
@@ -122,6 +148,9 @@ export async function render(root) {
       { name: 'roomMap', label: 'จับคู่ชนิดห้องของ HIS → ประเภทห้อง', type: 'textarea', full: true, value: mapText(s.roomTypeMap),
         hint: 'เช่น GYM=gym, PED=pediatric (treatment private gym pediatric hydro consult)' },
       { name: 'allowedIps', label: 'IP ที่อนุญาตให้ส่งเข้า (คั่นด้วย ,)', value: (s.allowedIps || []).join(', '), full: true, hint: 'เว้นว่าง = ไม่จำกัด (ยังต้องใช้ API key)' },
+      { name: 'encRequired', label: 'บังคับเข้ารหัสข้อมูลชั้นที่ 2 (JWE · AES-256-GCM) ทั้งขาเข้าและขาออก', type: 'checkbox', full: true, value: s.encryption?.mode === 'required' },
+      { name: 'encKeyEnv', label: 'ชื่อตัวแปรกุญแจเข้ารหัส', value: s.encryption?.keyEnv || 'HIS_PAYLOAD_KEY', full: true,
+        hint: 'ค่ากุญแจ (32 ไบต์) ตั้งใน Railway → Variables ด้วยชื่อนี้ และฝ่าย IT โรงพยาบาลใช้ค่าเดียวกัน — กดปุ่ม "สร้างกุญแจ" ที่การ์ดการเชื่อมต่อ' },
     ], async (v, m) => {
       const settings = {
         ...s,
@@ -131,6 +160,7 @@ export async function render(root) {
         deviceCategoryMap: parseMap(v.deviceMap),
         roomTypeMap: parseMap(v.roomMap),
         allowedIps: String(v.allowedIps || '').split(',').map((x) => x.trim()).filter(Boolean),
+        encryption: { mode: v.encRequired ? 'required' : 'off', keyEnv: v.encKeyEnv || null },
       };
       const body = { name: v.name, baseUrl: v.baseUrl || null, authSecretEnv: v.authSecretEnv || null, isEnabled: v.isEnabled, settings };
       if (c) {
@@ -226,6 +256,7 @@ export async function render(root) {
       if (act === 'edit') openConnectorForm(c);
       else if (act === 'import') importFile(c);
       else if (act === 'runs') await showRuns(c);
+      else if (act === 'genkey') showNewKey(c);
       else if (act === 'test') {
         const r = await api.post(`/integration/connectors/${c.id}/test`);
         toast(r.ok ? `เชื่อมต่อได้ · FHIR ${r.fhirVersion || '?'}${r.software ? ` · ${r.software}` : ''}` : `เชื่อมต่อไม่ได้: ${r.error}`, r.ok ? 'success' : 'error');

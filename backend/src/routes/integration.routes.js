@@ -16,6 +16,7 @@ const { badRequest, notFound, unauthorized, AppError } = require('../errors');
 const sync = require('../services/integration/sync.service');
 const outbox = require('../services/integration/outbox.service');
 const { HIS_OWNED } = require('../services/integration/ownership');
+const jwe = require('../services/integration/jwe');
 
 const hashKey = (k) => crypto.createHash('sha256').update(k).digest('hex');
 const newKey = () => `pchis_${crypto.randomBytes(32).toString('base64url')}`;
@@ -34,9 +35,23 @@ inboundRouter.post('/:code/fhir',
     if (!ok) throw unauthorized('API key ไม่ถูกต้อง หรือการเชื่อมต่อนี้ปิดอยู่');
     const allowed = c.settings?.allowedIps || [];
     if (allowed.length && !allowed.includes(req.ip)) throw new AppError(403, 'FORBIDDEN', `IP ${req.ip} ไม่อยู่ในรายการที่อนุญาต`);
-    if (!req.body || typeof req.body !== 'object') throw badRequest('ต้องส่ง FHIR resource หรือ Bundle (JSON)');
-    const result = await sync.importResources(c, req.body, { dryRun: req.query.dryRun === 'true', mode: 'push' });
-    res.status(result.status === 'failed' ? 422 : 200).json({
+    // ชั้นที่ 2: เข้ารหัสเนื้อหา (JWE) — บังคับเมื่อตั้งค่า encryption.mode = required
+    const enc = c.settings?.encryption || {};
+    const encrypted = req.is('application/jose');
+    const key = enc.keyEnv ? process.env[enc.keyEnv] : null;
+    let body = req.body;
+    if (encrypted) {
+      if (!key) throw new AppError(503, 'ENCRYPTION_NOT_CONFIGURED', 'เซิร์ฟเวอร์ยังไม่ได้ตั้งกุญแจถอดรหัสของการเชื่อมต่อนี้');
+      try { body = jwe.decrypt(req.body, key, { kid: c.code }).payload; } catch (e) {
+        if (e instanceof jwe.JweError) throw new AppError(400, 'DECRYPT_FAILED', e.message);
+        throw e;
+      }
+    } else if (enc.mode === 'required') {
+      throw new AppError(415, 'ENCRYPTION_REQUIRED', 'การเชื่อมต่อนี้บังคับเข้ารหัสข้อมูล: ส่งเป็น JWE (Content-Type: application/jose)');
+    }
+    if (!body || typeof body !== 'object') throw badRequest('ต้องส่ง FHIR resource หรือ Bundle (JSON)');
+    const result = await sync.importResources(c, body, { dryRun: req.query.dryRun === 'true', mode: 'push' });
+    const out = {
       resourceType: 'OperationOutcome',
       issue: result.errors.length
         ? result.errors.map((e) => ({ severity: 'error', code: 'processing', diagnostics: `${e.key}: ${e.message}` }))
@@ -45,7 +60,11 @@ inboundRouter.post('/:code/fhir',
       dryRun: result.dryRun,
       stats: result.stats,
       items: result.items,
-    });
+    };
+    res.status(result.status === 'failed' ? 422 : 200);
+    // คำตอบมีรายการข้อมูลผู้ป่วย → ถ้าคำขอเข้ารหัสมา ก็ตอบกลับแบบเข้ารหัสด้วย
+    if (encrypted) res.type('application/jose').send(jwe.encrypt(out, key, { kid: c.code }));
+    else res.json(out);
   });
 
 // ------------------------------------------------------------------ admin
@@ -60,6 +79,10 @@ const settingsSchema = z.object({
   practitionerPosition: z.enum(['physiotherapist', 'assistant']),
   pull: z.object({ resources: z.array(z.enum(sync.SUPPORTED)), queries: z.record(z.string(), z.string().max(500)) }).partial(),
   allowedIps: z.array(z.string().max(64)).max(50),
+  encryption: z.object({
+    mode: z.enum(['off', 'required']),
+    keyEnv: z.string().regex(/^HIS_[A-Z0-9_]{1,60}$/, 'ต้องขึ้นต้นด้วย HIS_ (เช่น HIS_PAYLOAD_KEY)').nullish(),
+  }).refine((e) => e.mode === 'off' || e.keyEnv, { message: 'บังคับเข้ารหัสต้องระบุชื่อตัวแปรกุญแจ' }),
 }).partial();
 const connectorBody = z.object({
   code: z.string().regex(/^[a-z0-9_-]{2,30}$/, 'ใช้ a-z 0-9 _ - ยาว 2–30 ตัว'),
@@ -78,7 +101,12 @@ async function getConnector(id) {
 }
 const publicView = (c) => {
   const { inbound_key_hash: _h, ...rest } = c;
-  return { ...rest, auth_env_present: c.auth_secret_env ? Boolean(process.env[c.auth_secret_env]) : null };
+  const keyEnv = c.settings?.encryption?.keyEnv;
+  let keyStatus = null;
+  if (keyEnv) {
+    try { jwe.parseKey(process.env[keyEnv]); keyStatus = 'ok'; } catch (e) { keyStatus = process.env[keyEnv] ? 'invalid' : 'missing'; }
+  }
+  return { ...rest, auth_env_present: c.auth_secret_env ? Boolean(process.env[c.auth_secret_env]) : null, encryption_key_status: keyStatus };
 };
 
 // ใครก็ตามที่ login: ใช้ล็อกฟิลด์ในฟอร์มของข้อมูลที่มาจาก HIS

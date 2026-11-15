@@ -23,7 +23,7 @@
                  │  FHIR R4 server   หรือ   HL7 v2 / ฐานข้อมูล → interface engine (Mirth) │
                  └──────┬───────────────────────────▲───────────────────────▲──────────┘
          (1) push       │ POST /inbound/:code/fhir  │ (2) pull GET [base]/… │ (3) PUT [base]/Appointment?identifier=…
-         X-Api-Key      ▼                           │  Bearer HIS_TOKEN     │     PUT [base]/Observation?identifier=…
+         X-Api-Key      ▼  [+ JWE A256GCM]          │  Bearer HIS_TOKEN     │     PUT [base]/Observation?…  [+ JWE]
  ┌────────────────────────────────────── PhysioCare ──────────────────────────────────────┐
  │  integration.routes ──► sync.service (map FHIR → ข้อมูลหลัก, ตรวจซ้ำ, dry-run)          │
  │                           │                                                             │
@@ -104,6 +104,7 @@ Content-Type: application/fhir+json
 { "resourceType": "Bundle", "entry": [ … ] }      ← หรือ resource เดี่ยว / array (สูงสุด 10 MB)
 ```
 ตอบเป็น `OperationOutcome` พร้อม `stats` (created/updated/linked/unchanged/skipped/failed) และรายการผลต่อ resource
+เมื่อเปิดเข้ารหัสชั้นที่ 2 ให้ส่ง `Content-Type: application/jose` และ body เป็น JWE (ดูหัวข้อ 7.1) — คำตอบจะเข้ารหัสกลับมาด้วยกุญแจเดียวกัน
 
 **ผู้ดูแล (JWT + สิทธิ์ `integration:manage`)**
 
@@ -130,6 +131,35 @@ Content-Type: application/fhir+json
 - ทุกการนำเข้า/ตั้งค่าบันทึกใน audit log และ `integration_runs`
 - ควรใช้ HTTPS ทั้งสองทาง และทำข้อตกลงการประมวลผลข้อมูล (DPA) กับฝ่าย IT โรงพยาบาลก่อนเปิดใช้งานจริง
 
+### 7.1 เข้ารหัสชั้นที่ 2 (เลือกเปิด แนะนำให้เปิดเมื่อมีข้อมูลผู้ป่วย)
+
+HTTPS ป้องกันระหว่างทาง แต่ข้อมูลถูกถอดรหัสที่ปลายทาง proxy / load balancer / interface engine ที่อยู่ระหว่างกลาง
+ชั้นที่ 2 เข้ารหัส **ตัวเนื้อหา** ตั้งแต่ระบบต้นทางจนถึงระบบปลายทาง ตัวกลางเห็นแค่ข้อความที่อ่านไม่ออก
+
+| หัวข้อ | ค่า |
+|---|---|
+| มาตรฐาน | JWE compact serialization (RFC 7516) |
+| อัลกอริทึม | `alg: "dir"` (กุญแจร่วม) + `enc: "A256GCM"` (AES-256-GCM เข้ารหัสและตรวจว่าไม่ถูกแก้ไข) |
+| กุญแจ | สุ่ม 32 ไบต์ (256 บิต) base64 หรือ hex — กด **สร้างกุญแจเข้ารหัส** ในหน้า "เชื่อมต่อ HIS" แล้วตั้งใน Railway Variables (`HIS_PAYLOAD_KEY`) และส่งให้ฝ่าย IT ผ่านช่องทางปลอดภัย ระบบไม่เก็บกุญแจในฐานข้อมูล |
+| protected header | `{"alg":"dir","enc":"A256GCM","kid":"<รหัส connector>","iat":<unix วินาที>,"jti":"<ค่าสุ่มไม่ซ้ำ>","cty":"fhir+json"}` |
+| ปฏิเสธเมื่อ | ไม่เข้ารหัส (415), ถอดไม่ได้/ถูกแก้ไข/กุญแจผิด, `kid` ไม่ตรง connector, `iat` ห่างเกิน 5 นาที, `jti` ซ้ำ (replay) (400) |
+| ครอบคลุม | HIS → PhysioCare (push) และคำตอบ, PhysioCare → HIS (ส่งนัด/ผลประเมินกลับ) — การ pull จาก FHIR server ใช้ HTTPS + token |
+
+ตัวอย่างฝั่งโรงพยาบาล (Node.js ไลบรารี `jose`):
+
+```js
+import { CompactEncrypt, compactDecrypt } from 'jose';
+const key = Buffer.from(process.env.HIS_PAYLOAD_KEY, 'base64');           // 32 ไบต์
+const jwe = await new CompactEncrypt(new TextEncoder().encode(JSON.stringify(bundle)))
+  .setProtectedHeader({ alg: 'dir', enc: 'A256GCM', kid: 'main-his', iat: Math.floor(Date.now() / 1000), jti: crypto.randomUUID(), cty: 'fhir+json' })
+  .encrypt(key);
+const res = await fetch(url, { method: 'POST', headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/jose' }, body: jwe });
+const { plaintext } = await compactDecrypt(await res.text(), key);       // คำตอบ (OperationOutcome)
+```
+
+Python (`jwcrypto`): `JWE(json.dumps(bundle).encode(), protected=json.dumps({...})).add_recipient(JWK(kty="oct", k=<base64url กุญแจ>))` แล้ว `serialize(compact=True)`
+Java (Nimbus JOSE+JWT): `new JWEObject(new JWEHeader.Builder(JWEAlgorithm.DIR, EncryptionMethod.A256GCM)...build(), payload).encrypt(new DirectEncrypter(key))`
+
 ## 8. ขั้นตอนเปิดใช้งาน
 
 1. เมนู **เชื่อมต่อ HIS → + เพิ่มการเชื่อมต่อ** ตั้งชื่อและรหัส (เช่น `main-his`) → **คัดลอก API key เก็บไว้** (แสดงครั้งเดียว)
@@ -145,4 +175,5 @@ Content-Type: application/fhir+json
 - รับ `Schedule`/`Slot` ของ HIS เพื่อจองนัดจากระบบนัดกลางของโรงพยาบาล
 - `Encounter` / ค่าบริการ / สิทธิการรักษา (เบิกจ่าย) และ `DocumentReference` สำหรับสรุปผลกายภาพเป็น PDF
 - ยืนยันตัวแบบ SMART Backend Services (OAuth2 client credentials) หรือ mTLS แทน API key
+- เข้ารหัสแบบกุญแจคู่ (`alg: ECDH-ES` / `RSA-OAEP-256`) เพื่อไม่ต้องแบ่งปันกุญแจลับระหว่างสองฝั่ง และเข้ารหัสผลลัพธ์ของการ pull
 - FHIR Subscription (HIS แจ้งเมื่อข้อมูลเปลี่ยน) แทนการดึงเป็นรอบ

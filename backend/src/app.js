@@ -30,7 +30,12 @@ function createApp() {
   const json = express.json({ limit: '1mb' });
   // FHIR Bundle จาก HIS อาจใหญ่กว่าปกติ และใช้ content-type application/fhir+json
   const fhirJson = express.json({ limit: '10mb', type: ['application/json', 'application/fhir+json'] });
-  app.use((req, res, next) => (req.path.startsWith('/api/integration/') ? fhirJson : json)(req, res, next));
+  // ข้อมูลที่เข้ารหัสชั้นที่ 2 (JWE compact) มาเป็นข้อความ application/jose
+  const jose = express.text({ limit: '14mb', type: 'application/jose' });
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/integration/')) return json(req, res, next);
+    return fhirJson(req, res, (err) => (err ? next(err) : jose(req, res, next)));
+  });
   app.use('/api', require('./routes'));
   app.use('/api', (_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'ไม่พบ endpoint' } }));
   app.use(express.static(config.frontendDir, { extensions: ['html'] }));
