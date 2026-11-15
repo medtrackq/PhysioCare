@@ -25,6 +25,7 @@ export async function render(root, { session }) {
       </select>
       ${btn('ตอนนี้ (สด)', 'id="d3-now"', 'ghost')}
       ${btn('มุมมองทั้งหมด', 'id="d3-frame"', 'ghost')}
+      ${btn('เต็มจอ', 'id="d3-fs-top"', 'ghost')}
       <span class="flex items-center gap-3 text-sm ml-2" id="d3-labels">
         <span class="text-slate-500">ป้าย:</span>
         <label class="flex items-center gap-1"><input type="checkbox" data-lb="room"> ห้อง</label>
@@ -68,6 +69,13 @@ export async function render(root, { session }) {
     return;
   }
   $('#d3-view').innerHTML = '';
+  // แถบเครื่องมือบนภาพ 3D (ใช้ได้ทั้งปกติและตอนเต็มจอ)
+  const overlay = document.createElement('div');
+  overlay.className = 'absolute right-3 top-3 z-10 flex items-center gap-2';
+  overlay.innerHTML = `
+    <span id="d3-fs-clock" class="hidden font-mono font-semibold bg-white/90 rounded-lg px-2.5 py-1 ring-1 ring-slate-200"></span>
+    <button id="d3-fs-play" type="button" class="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white ring-1 ring-slate-300 hover:bg-slate-50"></button>
+    <button id="d3-fs" type="button" aria-pressed="false" class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-white ring-1 ring-slate-300 hover:bg-slate-50"></button>`;
 
   const view = createClinic3D($('#d3-view'), {
     THREE,
@@ -80,6 +88,7 @@ export async function render(root, { session }) {
       loadLayout();
     },
   });
+  $('#d3-view').appendChild(overlay);
 
   // ---------- เวลาจำลอง ----------
   const dayStart = () => new Date(`${$('#d3-date').value}T00:00:00+07:00`).getTime();
@@ -103,7 +112,9 @@ export async function render(root, { session }) {
   const timeEl = $('#d3-time');
   function setPlaying(v) {
     playing = v;
-    $('#d3-play').textContent = v ? '⏸ หยุด' : '▶ เล่น';
+    const html = v ? `<svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="currentColor" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg><span>หยุด</span>` : `<svg viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg><span>เล่น</span>`;
+    $('#d3-play').innerHTML = html;
+    $('#d3-fs-play').innerHTML = html;
   }
   function setLive(v) {
     live = v;
@@ -130,6 +141,7 @@ export async function render(root, { session }) {
   function renderPanel() {
     const mins = (simTime - dayStart()) / MIN;
     $('#d3-clock').textContent = hhmm(mins);
+    $('#d3-fs-clock').textContent = hhmm(mins);
     if (document.activeElement !== timeEl) timeEl.value = String(Math.round(mins));
     const k = view.stats(simTime);
     const items = [
@@ -209,6 +221,44 @@ export async function render(root, { session }) {
     if (changed) await loadDay();
   });
   $('#d3-frame').addEventListener('click', () => view.frame());
+
+  // ---------- เต็มจอ (Fullscreen API; ถ้าไม่มี เช่น iPhone ใช้ขยายเต็มหน้าต่างแทน) ----------
+  const vp = $('#d3-view');
+  const vpStyle = vp.getAttribute('style');
+  const isFs = () => document.fullscreenElement === vp || vp.dataset.pseudoFs === '1';
+  function syncFs() {
+    const on = isFs();
+    $('#d3-fs').innerHTML = on ? `<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg><span>ออกจากเต็มจอ</span>` : `<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>เต็มจอ</span>`;
+    $('#d3-fs').setAttribute('aria-pressed', String(on));
+    setTimeout(() => view.frame(on ? 1.15 : 1), 200); // ขนาดจอเปลี่ยน → จัดกล้องใหม่
+    for (const id of ['#d3-fs-clock', '#d3-fs-play']) { $(id).classList.toggle('hidden', !on); $(id).classList.toggle(id === '#d3-fs-play' ? 'inline-flex' : 'inline-block', on); }
+  }
+  function setPseudo(on) {
+    vp.dataset.pseudoFs = on ? '1' : '';
+    if (on) vp.setAttribute('style', 'position:fixed;inset:0;z-index:60;height:100dvh;border-radius:0');
+    else vp.setAttribute('style', vpStyle);
+    document.body.style.overflow = on ? 'hidden' : '';
+  }
+  async function toggleFs() {
+    if (isFs()) {
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => {});
+      setPseudo(false);
+    } else if (vp.requestFullscreen && document.fullscreenEnabled) {
+      try { await vp.requestFullscreen(); } catch { setPseudo(true); }
+    } else setPseudo(true);
+    syncFs();
+  }
+  $('#d3-fs').addEventListener('click', toggleFs);
+  $('#d3-fs-top').addEventListener('click', toggleFs);
+  $('#d3-fs-play').addEventListener('click', () => $('#d3-play').click());
+  document.addEventListener('fullscreenchange', syncFs);
+  const onKey = (e) => {
+    if (e.key === 'Escape' && vp.dataset.pseudoFs === '1') { setPseudo(false); syncFs(); }
+    if (e.key === ' ' && isFs()) { e.preventDefault(); $('#d3-play').click(); }
+  };
+  document.addEventListener('keydown', onKey);
+  syncFs();
+  setPlaying(playing);
   // ป้ายห้อง/เตียง/ชื่อคน: จำค่าที่เลือกไว้ในเบราว์เซอร์นี้
   let labelPref = { room: true, bed: true, people: false };
   try { labelPref = { ...labelPref, ...JSON.parse(localStorage.getItem('pc.3d.labels') || '{}') }; } catch { /* ไม่มี storage */ }
@@ -240,6 +290,10 @@ export async function render(root, { session }) {
   renderPanel();
   return () => {
     clearInterval(panelTimer);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    document.body.style.overflow = '';
+    document.removeEventListener('fullscreenchange', syncFs);
+    document.removeEventListener('keydown', onKey);
     window.removeEventListener('appointment_changed', onAppt);
     window.removeEventListener('bed_status', onLayout);
     window.removeEventListener('equipment_status', onLayout);

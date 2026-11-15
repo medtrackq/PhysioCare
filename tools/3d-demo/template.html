@@ -65,6 +65,15 @@
   @media (max-width: 1080px) { .stage { grid-template-columns: minmax(0, 1fr); } }
 
   .viewport { position: relative; height: min(68vh, 720px); min-height: 380px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--scene-bg); }
+  /* เต็มจอ: ใช้ Fullscreen API ถ้ามี, ไม่งั้น (เช่น iPhone) ขยายเต็มหน้าต่างด้วย CSS */
+  .viewport:fullscreen { height: 100vh; border: 0; border-radius: 0; }
+  .viewport.pseudo-fs { position: fixed; inset: 0; z-index: 50; height: 100dvh; min-height: 0; border: 0; border-radius: 0; }
+  body.no-scroll { overflow: hidden; }
+  .vp-tools { position: absolute; right: 12px; top: 12px; z-index: 5; display: flex; gap: 6px; }
+  .vp-tools button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 13px; background: var(--panel); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .vp-tools svg { width: 16px; height: 16px; flex: none; }
+  .vp-tools .only-fs { display: none; }
+  .viewport:fullscreen .vp-tools .only-fs, .viewport.pseudo-fs .vp-tools .only-fs { display: inline-flex; }
   #scene { position: absolute; inset: 0; }
   .clock { position: absolute; left: 14px; top: 12px; z-index: 4; pointer-events: none; display: grid; gap: 0; }
   .clock b { font-family: var(--font-mono); font-size: clamp(1.8rem, 1.3rem + 2vw, 2.8rem); line-height: 1; color: var(--ink); text-shadow: 0 1px 0 var(--bg); }
@@ -77,6 +86,7 @@
   .panel h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; letter-spacing: 0.02em; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   button, select { font: inherit; font-size: 14px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+  #play { display: inline-flex; align-items: center; gap: 6px; }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -128,6 +138,10 @@
     <div class="viewport">
       <div id="scene"></div>
       <div class="clock"><b id="clock">10:30</b><span id="clock-sub">ผู้ป่วยในคลินิก –</span></div>
+      <div class="vp-tools">
+        <button id="fs-play" class="only-fs" type="button"></button>
+        <button id="fs" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>เต็มจอ</span></button>
+      </div>
       <div class="hint">ลากเพื่อหมุน · Shift+ลากเพื่อเลื่อน · ล้อเมาส์เพื่อซูม · คลิกคน เตียง หรืออุปกรณ์</div>
     </div>
 
@@ -264,7 +278,14 @@
   }
   if (view) view.setClock(tick);
   else (function loop() { tick(); requestAnimationFrame(loop); })();
-  const setPlaying = (v) => { playing = v; $('play').textContent = v ? '⏸ หยุด' : '▶ เล่น'; };
+  const ICON_PLAY = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M6 4h4.5v16H6zM13.5 4H18v16h-4.5z"/></svg>';
+  const setPlaying = (v) => {
+    playing = v;
+    const html = v ? `${ICON_PAUSE}<span>หยุด</span>` : `${ICON_PLAY}<span>เล่น</span>`;
+    $('play').innerHTML = html;
+    $('fs-play').innerHTML = html;
+  };
   setPlaying(playing);
 
   // สถิติแบบไม่ต้องพึ่ง WebGL (ใช้เมื่อแสดง 3D ไม่ได้ และใช้วาดกราฟ)
@@ -410,6 +431,35 @@
 
   // ---------- ปุ่ม ----------
   $('play').addEventListener('click', () => setPlaying(!playing));
+  $('fs-play').addEventListener('click', () => setPlaying(!playing));
+
+  // ---------- เต็มจอ ----------
+  const vp = document.querySelector('.viewport');
+  const ICON_EXPAND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  const ICON_SHRINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+  const isFs = () => document.fullscreenElement === vp || vp.classList.contains('pseudo-fs');
+  function syncFs() {
+    const on = isFs();
+    $('fs').innerHTML = on ? `${ICON_SHRINK}<span>ออกจากเต็มจอ</span>` : `${ICON_EXPAND}<span>เต็มจอ</span>`;
+    $('fs').setAttribute('aria-pressed', String(on));
+    setTimeout(() => view && view.frame(on ? 1.15 : 1.25), 200); // ขนาดจอเปลี่ยน → จัดกล้องใหม่
+    document.body.classList.toggle('no-scroll', vp.classList.contains('pseudo-fs'));
+  }
+  $('fs').addEventListener('click', async () => {
+    if (isFs()) {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      vp.classList.remove('pseudo-fs');
+    } else if (vp.requestFullscreen && document.fullscreenEnabled) {
+      try { await vp.requestFullscreen(); } catch { vp.classList.add('pseudo-fs'); }
+    } else vp.classList.add('pseudo-fs');
+    syncFs();
+  });
+  document.addEventListener('fullscreenchange', syncFs);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && vp.classList.contains('pseudo-fs')) { vp.classList.remove('pseudo-fs'); syncFs(); }
+    if ((e.key === 'f' || e.key === 'F') && !e.target.closest('input, select, textarea')) $('fs').click();
+    if (e.key === ' ' && isFs()) { e.preventDefault(); setPlaying(!playing); }
+  });
   $('reset').addEventListener('click', () => view && view.frame(1.25));
   document.querySelectorAll('[data-lb]').forEach((cb) => {
     cb.addEventListener('change', () => view && view.setLabels({ [cb.dataset.lb]: cb.checked }));
