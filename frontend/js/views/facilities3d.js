@@ -25,6 +25,12 @@ export async function render(root, { session }) {
       </select>
       ${btn('ตอนนี้ (สด)', 'id="d3-now"', 'ghost')}
       ${btn('มุมมองทั้งหมด', 'id="d3-frame"', 'ghost')}
+      <span class="flex items-center gap-3 text-sm ml-2" id="d3-labels">
+        <span class="text-slate-500">ป้าย:</span>
+        <label class="flex items-center gap-1"><input type="checkbox" data-lb="room"> ห้อง</label>
+        <label class="flex items-center gap-1"><input type="checkbox" data-lb="bed"> เตียง</label>
+        <label class="flex items-center gap-1"><input type="checkbox" data-lb="people"> ชื่อคน</label>
+      </span>
       <span id="d3-live" class="hidden text-xs font-medium text-emerald-700 bg-emerald-50 rounded-full px-2 py-0.5">● สด</span>
       ${canEdit ? `<label class="ml-auto flex items-center gap-2 text-sm"><input id="d3-edit" type="checkbox"> จัดผัง (ลากห้องเพื่อย้าย)</label>` : ''}
     </div>
@@ -203,6 +209,18 @@ export async function render(root, { session }) {
     if (changed) await loadDay();
   });
   $('#d3-frame').addEventListener('click', () => view.frame());
+  // ป้ายห้อง/เตียง/ชื่อคน: จำค่าที่เลือกไว้ในเบราว์เซอร์นี้
+  let labelPref = { room: true, bed: true, people: false };
+  try { labelPref = { ...labelPref, ...JSON.parse(localStorage.getItem('pc.3d.labels') || '{}') }; } catch { /* ไม่มี storage */ }
+  view.setLabels(labelPref);
+  root.querySelectorAll('[data-lb]').forEach((cb) => {
+    cb.checked = Boolean(labelPref[cb.dataset.lb]);
+    cb.addEventListener('change', () => {
+      labelPref[cb.dataset.lb] = cb.checked;
+      view.setLabels({ [cb.dataset.lb]: cb.checked });
+      try { localStorage.setItem('pc.3d.labels', JSON.stringify(labelPref)); } catch { /* ไม่มี storage */ }
+    });
+  });
   $('#d3-edit')?.addEventListener('change', (e) => {
     view.setEditable(e.target.checked);
     toast(e.target.checked ? 'โหมดจัดผัง: ลากพื้นห้องเพื่อย้าย ระบบบันทึกตำแหน่งอัตโนมัติ' : 'ปิดโหมดจัดผัง');

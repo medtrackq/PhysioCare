@@ -4,6 +4,7 @@
  *
  *   node tools/3d-demo/build.js --api http://localhost:3000 --date 2026-10-19 --out demo.html
  *
+ * อยากให้คลินิกดูแน่นขึ้น: รัน tools/3d-demo/seed-busy-day.js --date <วันเดียวกัน> ก่อน
  * ต้องรันกับฐานข้อมูลที่โหลด `migrate --demo` เท่านั้น — สคริปต์นี้ฝังชื่อผู้ป่วยลงในไฟล์
  * จึงห้ามใช้กับข้อมูลผู้ป่วยจริง
  */

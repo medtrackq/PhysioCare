@@ -80,6 +80,10 @@
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--panel); font-weight: 600; }
   button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  .labels { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: 14px; }
+  .labels > span { color: var(--muted); font-size: 13px; }
+  .labels label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .labels input { accent-color: var(--accent); width: 16px; height: 16px; }
   .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .kpi { display: grid; gap: 2px; }
   .kpi small { font-size: 11px; color: var(--muted); line-height: 1.3; }
@@ -137,6 +141,12 @@
             <option value="10">เร็ว · 10 นาที/วินาที</option>
           </select>
           <button id="reset" type="button">มุมกล้องเริ่มต้น</button>
+        </div>
+        <div class="labels" role="group" aria-label="แสดงป้าย">
+          <span>แสดงป้าย</span>
+          <label><input type="checkbox" data-lb="room" checked> ห้อง</label>
+          <label><input type="checkbox" data-lb="bed" checked> เตียง</label>
+          <label><input type="checkbox" data-lb="people"> ชื่อคน</label>
         </div>
       </div>
       <div class="panel">
@@ -239,7 +249,7 @@
   new MutationObserver(() => { retheme(); drawChart(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   // ---------- นาฬิกาจำลอง ----------
-  let t = day0 + (9 * 60 + 40) * MIN;
+  let t = day0 + (13 * 60 + 50) * MIN; // เริ่มช่วงบ่ายที่คลินิกแน่นที่สุด
   let playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let last = performance.now();
   function tick() {
@@ -401,6 +411,9 @@
   // ---------- ปุ่ม ----------
   $('play').addEventListener('click', () => setPlaying(!playing));
   $('reset').addEventListener('click', () => view && view.frame(1.25));
+  document.querySelectorAll('[data-lb]').forEach((cb) => {
+    cb.addEventListener('change', () => view && view.setLabels({ [cb.dataset.lb]: cb.checked }));
+  });
   panel();
 })();
 </script>

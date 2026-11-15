@@ -143,10 +143,14 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     labelCache.set(key, out);
     return out;
   }
-  function label(text, sub = '', opts = {}, size = 0.5) {
+  // ป้ายแต่ละกลุ่มเปิด/ปิดได้: room (ห้องและพื้นที่), bed (ชื่อเตียง), people (ชื่อผู้ป่วย/นักกายภาพ)
+  const labelOn = { room: true, bed: true, people: false };
+  function label(text, sub = '', opts = {}, size = 0.5, kind = null) {
     const sprite = new THREE.Sprite(track(new THREE.SpriteMaterial({ depthTest: false, transparent: true, sizeAttenuation: false })));
     sprite.renderOrder = 10;
     sprite.userData.size = size;
+    sprite.userData.labelKind = kind;
+    if (kind) sprite.visible = labelOn[kind] !== false;
     setLabel(sprite, text, sub, opts);
     return sprite;
   }
@@ -504,7 +508,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     const storage = { x: lobby.x + lobby.w + 0.8, w: 3.5, z0: lobby.z0, z1: lobby.z0 + Math.min(8, lobby.z1 - lobby.z0) };
     const entrance = { x: lobby.x + lobby.w - 0.6, z: cz };
     const seats = [];
-    for (let i = 0; i < 12; i++) seats.push({ x: lobby.x + 1.2 + (i % 6) * 0.75, z: lobby.z1 - 1.0 - Math.floor(i / 6) * 1.5, yaw: Math.PI });
+    for (let i = 0; i < 24; i++) seats.push({ x: lobby.x + 1.2 + (i % 6) * 0.75, z: lobby.z1 - 1.0 - Math.floor(i / 6) * 1.5, yaw: Math.PI });
     const stations = [];
     for (let i = 0; i < 8; i++) stations.push({ x: lobby.x + 1.0 + (i % 4) * 0.9, z: lobby.z0 + 2.4 + Math.floor(i / 4) * 0.8 });
     return { rooms, byId: new Map(rooms.map((r) => [r.id, r])), bounds, corridor, cz, lobby, storage, entrance, seats, stations };
@@ -545,17 +549,17 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     world.add(desk, deskTop);
     for (const s of L.seats) { const c = chair('#5b7fa6'); c.position.set(s.x, 0, s.z); c.rotation.y = s.yaw; world.add(c); }
     for (const [x, z] of [[lobby.x + 0.4, lobby.z0 + 0.4], [lobby.x + lobby.w - 0.4, lobby.z1 - 0.4], [lobby.x + lobby.w - 0.4, lobby.z0 + 0.4]]) { const p = plant(); p.position.set(x, 0, z); world.add(p); }
-    const lobbyLabel = label('เคาน์เตอร์ต้อนรับ / พักคอย', '', {}, 0.5);
+    const lobbyLabel = label('เคาน์เตอร์ต้อนรับ / พักคอย', '', {}, 0.5, 'room');
     lobbyLabel.position.set(lobby.x + lobby.w / 2, 2.2, lobby.z0 + 0.5);
     world.add(lobbyLabel);
-    const entryLabel = label('ทางเข้า', '', { bg: 'rgba(14,116,144,0.92)', color: '#ffffff' }, 0.42);
+    const entryLabel = label('ทางเข้า', '', { bg: 'rgba(14,116,144,0.92)', color: '#ffffff' }, 0.42, 'room');
     entryLabel.position.set(L.entrance.x + 0.4, 1.6, L.entrance.z);
     world.add(entryLabel);
     // คลังอุปกรณ์
     const st = floorMesh(storage.w, storage.z1 - storage.z0, theme.storage);
     st.position.set(storage.x + storage.w / 2, 0.004, (storage.z0 + storage.z1) / 2);
     world.add(st);
-    const stl = label('คลังอุปกรณ์', 'เครื่องเคลื่อนย้ายได้', {}, 0.45);
+    const stl = label('คลังอุปกรณ์', 'เครื่องเคลื่อนย้ายได้', {}, 0.45, 'room');
     stl.position.set(storage.x + storage.w / 2, 1.9, storage.z0 + 0.4);
     world.add(stl);
 
@@ -587,7 +591,7 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
       wall(g, t, r.d, r.x + r.w - t / 2, r.z + r.d / 2);
       wall(g, (r.w - door) / 2, t, r.x + (r.w - door) / 4, dz);
       wall(g, (r.w - door) / 2, t, r.x + r.w - (r.w - door) / 4, dz);
-      const lb = label(`${r.code} · ${r.name}`, '', {}, 0.48);
+      const lb = label(`${r.code} · ${r.name}`, '', {}, 0.48, 'room');
       lb.position.set(r.x + r.w / 2, 1.7, r.door.z + (r.doorSide > 0 ? -0.3 : 0.3));
       g.add(lb);
       r.labelSprite = lb;
@@ -598,11 +602,11 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
         bg.rotation.y = s.rot;
         const data = { ...bd, roomName: r.name, roomCode: r.code, roomId: r.id };
         bg.traverse((m) => { if (m.isMesh) m.userData = { kind: 'bed', data, pick: true }; });
-        if (bd.status !== 'available') {
-          const warn = label(bd.status === 'maintenance' ? 'ปิดซ่อม' : 'งดใช้', '', { color: '#92400e', bg: 'rgba(254,243,199,0.95)' }, 0.4);
-          warn.position.set(0, 1.3, 0);
-          bg.add(warn);
-        }
+        const bedTag = bd.status !== 'available'
+          ? label(`${bd.name} · ${bd.status === 'maintenance' ? 'ปิดซ่อม' : 'งดใช้'}`, '', { color: '#92400e', bg: 'rgba(254,243,199,0.95)' }, 0.36, 'bed')
+          : label(bd.name, '', { color: '#334155', bg: 'rgba(255,255,255,0.85)' }, 0.32, 'bed');
+        bedTag.position.set(0, 1.25, -0.6);
+        bg.add(bedTag);
         g.add(bg);
         L.bedObj.set(bd.id, { group: bg, slot: s, room: r, data, top: bg.userData.top });
       });
@@ -651,8 +655,8 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     dayRaw = appointments || [];
     dayOpts = opts;
     if (!L) return;
-    for (const a of day) actors.remove(a.person);
-    for (const t of therapists.values()) actors.remove(t.person);
+    for (const a of day) actors.remove(a.person, a.tag);
+    for (const t of therapists.values()) actors.remove(t.person, t.tag);
     if (helper) actors.remove(helper);
     const turnover = (opts.turnoverMin ?? 5) * MIN;
     day = dayRaw.filter((a) => !['cancelled'].includes(a.status)).map((a, i) => {
@@ -671,8 +675,11 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
       const gymEq = eqIds.map((id) => L.equip.get(id)).find((x) => x && GYM_EQUIPMENT.has(x.data.category_code));
       const appt = {
         ...a, s, e, turnoverEnd: a.bed_until ? Math.max(e, new Date(a.bed_until).getTime()) : e + turnover, person, room, bed, eqIds, gymEq,
-        seat: L.seats[i % L.seats.length], noShow: a.status === 'no_show', h,
+        seat: null, noShow: a.status === 'no_show', h,
       };
+      appt.tag = label(firstName(a.patient_name), '', { color: '#0f172a', bg: 'rgba(255,255,255,0.88)' }, 0.3, 'people');
+      appt.tag.visible = false;
+      actors.add(appt.tag);
       appt.spot = spotFor(appt, i);
       appt.path = { in: pathToSpot(appt), out: null };
       appt.path.out = [...appt.path.in].reverse().slice(0, -1).concat([L.entrance]);
@@ -680,6 +687,15 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
       person.traverse((m) => { if (m.isMesh) m.userData = { ...pick, pick: true }; });
       return appt;
     });
+    // ที่นั่งพักคอย: ให้คนที่มาถึงได้เก้าอี้ว่างตัวแรก (ไม่นั่งทับกัน)
+    const seatFree = L.seats.map(() => -Infinity);
+    for (const a of [...day].sort((x, y) => x.s - y.s)) {
+      const arrive = a.s - ARRIVE_BEFORE * MIN;
+      let i = seatFree.findIndex((until) => until <= arrive);
+      if (i < 0) i = seatFree.indexOf(Math.min(...seatFree));
+      seatFree[i] = a.s;
+      a.seat = L.seats[i];
+    }
     // นักกายภาพ: ตามลำดับนัดของแต่ละคน
     therapists = new Map();
     let k = 0;
@@ -690,7 +706,10 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
         const color = a.therapist_color || '#0ea5e9';
         const person = makePerson({ top: color, bottom: color, skin: SKIN[(k + 2) % SKIN.length], hair: HAIR[k % HAIR.length], role: 'therapist' });
         actors.add(person);
-        therapists.set(id, { id, name: a.therapist_name, color, person, appts: [], station: L.stations[k % L.stations.length] });
+        const tag = label(String(a.therapist_name || '').split(' ')[0], '', { color: '#ffffff', bg: color }, 0.3, 'people');
+        tag.visible = false;
+        actors.add(tag);
+        therapists.set(id, { id, name: a.therapist_name, color, person, tag, appts: [], station: L.stations[k % L.stations.length] });
         k++;
       }
       therapists.get(id).appts.push(a);
@@ -924,6 +943,15 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
         } else eq.model.position.set(eq.home.x, 0, eq.home.z);
       }
     }
+    // ป้ายชื่อคน: ลอยเหนือศีรษะ
+    const placeTag = (tag, p, lying) => {
+      tag.visible = labelOn.people && p.visible;
+      if (!tag.visible) return;
+      if (lying) tag.position.set(p.position.x + 0.75, p.position.y + 0.35, p.position.z - 0.9);
+      else tag.position.set(p.position.x, p.position.y + 2.05, p.position.z);
+    };
+    for (const a of day) placeTag(a.tag, a.person, Math.abs(a.person.rotation.x) > 0.5);
+    for (const th of therapists.values()) placeTag(th.tag, th.person, false);
     // ป้ายห้อง: จำนวนผู้ป่วย
     for (const r of L.rooms) setLabel(r.labelSprite, `${r.code} · ${r.name}`, `ผู้ป่วยตอนนี้ ${occupancy.get(r.id) || 0}/${r.capacity}`);
     lastT = t;
@@ -1153,6 +1181,15 @@ export function createClinic3D(container, { THREE, onSelect = () => {}, onRoomMo
     frame,
     focus,
     setEditable(v) { editable = Boolean(v); },
+    /** เปิด/ปิดป้าย: { room, bed, people } */
+    setLabels(opts) {
+      Object.assign(labelOn, opts);
+      for (const root of [world, actors]) {
+        root.traverse((o) => { if (o.isSprite && o.userData.labelKind && o.userData.labelKind !== 'people') o.visible = labelOn[o.userData.labelKind]; });
+      }
+      setTime(lastT);
+    },
+    labels: () => ({ ...labelOn }),
     setTheme(t) {
       theme = { ...DEFAULT_THEME, ...t };
       scene.background = new THREE.Color(theme.bg);
