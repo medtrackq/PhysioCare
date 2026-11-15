@@ -21,6 +21,7 @@ USER node
 WORKDIR /app/backend
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/api/health" >/dev/null || exit 1
 # รัน migration ก่อนเริ่มเซิร์ฟเวอร์ทุกครั้ง (มี advisory lock กันรันซ้อน)
-CMD ["sh", "-c", "node scripts/migrate.js && exec node src/server.js"]
+# แล้วสร้างผู้ดูแลระบบคนแรกจาก ADMIN_EMAIL/ADMIN_PASSWORD ถ้ายังไม่มี (ไม่ตั้งตัวแปร = ข้าม)
+CMD ["sh", "-c", "node scripts/migrate.js && node scripts/bootstrap-admin.js && exec node src/server.js"]

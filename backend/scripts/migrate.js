@@ -17,6 +17,13 @@ const { Client } = require('pg');
 
 const DIR = path.resolve(process.env.MIGRATIONS_DIR || path.join(__dirname, '..', '..', 'db'));
 const args = new Set(process.argv.slice(2));
+// DEMO_MODE=true: โหลดข้อมูลทดลอง (บัญชีรหัสผ่าน Passw0rd!) สำหรับ deploy เพื่อนำเสนอเท่านั้น
+const demoMode = process.env.DEMO_MODE === 'true';
+if (demoMode) {
+  args.add('--demo');
+  args.add('--force');
+  console.warn('!! DEMO_MODE=true — loading demo data with publicly known passwords. Never use this deployment for real patients.');
+}
 
 function listFiles() {
   const pick = (dir, prefix = '') => (fs.existsSync(dir)
