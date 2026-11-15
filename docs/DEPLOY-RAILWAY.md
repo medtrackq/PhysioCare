@@ -83,6 +83,16 @@ ADMIN_NAME=ผู้ดูแลระบบ
 
 ตัวแปรเสริม (ไม่บังคับ): `JWT_EXPIRES_IN` (ค่าเริ่มต้น `8h`), `MAX_UPLOAD_MB` (ค่าเริ่มต้น `5`), `LOGIN_RATE_LIMIT` (ค่าเริ่มต้น `30` ครั้งต่อ 15 นาทีต่อ IP)
 
+ตัวแปรสำหรับเชื่อมต่อระบบโรงพยาบาล (ใส่เฉพาะเมื่อเปิดใช้เมนู "เชื่อมต่อ HIS" — ดู [INTEGRATION.md](INTEGRATION.md)):
+
+| ตัวแปร | ใช้เมื่อ |
+|---|---|
+| `HIS_TOKEN` | ระบบต้องไปดึงข้อมูลหรือส่งนัดกลับ FHIR server ของโรงพยาบาล (token ที่ฝ่าย IT ออกให้) |
+| `HIS_PAYLOAD_KEY` | เปิด "บังคับเข้ารหัสข้อมูลชั้นที่ 2" — กุญแจ 32 ไบต์ที่กดสร้างในหน้า "เชื่อมต่อ HIS" |
+| `INTEGRATION_WORKER` | ตั้ง `false` เพื่อหยุดการส่งข้อมูลกลับ HIS ชั่วคราว |
+
+ชื่อตัวแปรของการเชื่อมต่อต้องขึ้นต้นด้วย `HIS_` เสมอ (ระบบไม่ยอมอ่านตัวแปรอื่น เพื่อกันการส่งรหัสลับของระบบออกไปภายนอก)
+
 > ⚠ ห้ามตั้ง `DEMO_MODE=true` ใน project ที่ใช้กับผู้ป่วยจริง (ดูขั้นที่ 9)
 
 ## ขั้นที่ 6 ตั้ง health check และการรีสตาร์ต
@@ -106,7 +116,8 @@ service `physiocare` → **Settings** → **Deploy**:
    → applying 003_clinical_guidelines.sql ... ok
    → applying 004_rooms_beds.sql ... ok
    → applying 005_floor_plan.sql ... ok
-   Done (5 file(s) applied).
+   → applying 006_integration.sql ... ok
+   Done (6 file(s) applied).
    [bootstrap-admin] created admin owner@yourclinic.co.th — remove ADMIN_PASSWORD from the environment now
    PhysioCare API listening on http://localhost:XXXX
    ```

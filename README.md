@@ -42,11 +42,11 @@ node --env-file=.env src/server.js
 
 ### Deploy บน Railway
 
-ไม่ต้องดูแลเซิร์ฟเวอร์เอง: ทำตาม [docs/DEPLOY-RAILWAY.md](docs/DEPLOY-RAILWAY.md) (มีโหมด `DEMO_MODE=true` สำหรับ project นำเสนอ) — region ใกล้สุดคือ Singapore จึงต้องประเมิน PDPA ก่อนใช้กับผู้ป่วยจริง
+ไม่ต้องดูแลเซิร์ฟเวอร์เอง: ทำตาม [docs/DEPLOY-RAILWAY.md](docs/DEPLOY-RAILWAY.md) ([PDF](docs/pdf/PhysioCare-Deploy-Railway.pdf)) (มีโหมด `DEMO_MODE=true` สำหรับ project นำเสนอ) — region ใกล้สุดคือ Singapore จึงต้องประเมิน PDPA ก่อนใช้กับผู้ป่วยจริง
 
 ### ใช้งานจริง (production)
 
-ใช้ Docker Compose (แอป + PostgreSQL + HTTPS อัตโนมัติ + สำรองข้อมูลรายวัน) ตามคู่มือ [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production จะ **ไม่มี** ข้อมูลทดลองและบัญชี `Passw0rd!` ให้สร้างผู้ดูแลระบบคนแรกด้วย `npm run create-admin`
+ใช้ Docker Compose (แอป + PostgreSQL + HTTPS อัตโนมัติ + สำรองข้อมูลรายวัน) ตามคู่มือ [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) ([PDF](docs/pdf/PhysioCare-Deploy-Server.pdf)) — production จะ **ไม่มี** ข้อมูลทดลองและบัญชี `Passw0rd!` ให้สร้างผู้ดูแลระบบคนแรกด้วย `npm run create-admin`
 
 ### โครงสร้างไฟล์ฐานข้อมูล
 

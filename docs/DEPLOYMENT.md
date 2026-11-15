@@ -181,6 +181,7 @@ $ sh init-env.sh physio.yourclinic.co.th
 | `JWT_EXPIRES_IN` | อายุ session (ค่าเริ่มต้น 8h) |
 | `MAX_UPLOAD_MB` | ขนาดรูปสูงสุดต่อไฟล์ |
 | `BACKUP_KEEP_DAYS` / `BACKUP_HOUR` | เก็บไฟล์สำรองกี่วัน / สำรองตอนกี่โมง (14 วัน, 02:00) |
+| `HIS_TOKEN` / `HIS_PAYLOAD_KEY` | (ไม่บังคับ) ใส่เองเมื่อเชื่อมต่อระบบโรงพยาบาล: token ของ FHIR server และกุญแจเข้ารหัสชั้นที่ 2 — ดู [INTEGRATION.md](INTEGRATION.md) แล้วรัน `docker compose up -d` ใหม่ |
 
 **เก็บสำเนา `.env` ไว้นอกเซิร์ฟเวอร์** (เช่น password manager ของคลินิก) เพราะต้องใช้ตอนกู้ระบบ — บนคอมพิวเตอร์ของคุณ:
 
@@ -226,7 +227,8 @@ $ docker compose logs app
 → applying 003_clinical_guidelines.sql ... ok
 → applying 004_rooms_beds.sql ... ok
 → applying 005_floor_plan.sql ... ok
-Done (5 file(s) applied).
+→ applying 006_integration.sql ... ok
+Done (6 file(s) applied).
 PhysioCare API listening on http://localhost:3000
 ```
 

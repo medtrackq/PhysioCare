@@ -34,6 +34,10 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-5}
       TZ: Asia/Bangkok
+      # เชื่อมต่อระบบโรงพยาบาล (ไม่บังคับ) — ดู docs/INTEGRATION.md
+      HIS_TOKEN: ${HIS_TOKEN:-}
+      HIS_PAYLOAD_KEY: ${HIS_PAYLOAD_KEY:-}
+      INTEGRATION_WORKER: ${INTEGRATION_WORKER:-true}
     volumes:
       - uploads:/data/uploads
     expose:
