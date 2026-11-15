@@ -21,6 +21,9 @@ function errorHandler(err, req, res, _next) {
   if (err.code === 'P0001' && err.hint === 'EMR_LOCKED') {
     return res.status(409).json({ error: { code: 'EMR_LOCKED', message: 'เวชระเบียนลงนามแล้ว แก้ไขไม่ได้ (ใช้ Addendum)' } });
   }
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: 'ข้อมูลใหญ่เกินกำหนด — แบ่งส่งเป็นชุดเล็กลง' } });
+  }
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: { code: 'INVALID_JSON', message: 'JSON ไม่ถูกต้อง' } });
   }

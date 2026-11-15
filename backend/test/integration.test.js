@@ -115,6 +115,12 @@ describe('HIS integration (FHIR R4)', () => {
     assert.equal(list.body[0].inbound_key_hash, undefined);
   });
 
+  test('oversized payload gets 413', async () => {
+    const big = { resourceType: 'Bundle', entry: [], pad: 'x'.repeat(11 * 1024 * 1024) };
+    const r = await api('POST', '/api/integration/inbound/none/fhir', { body: big, headers: { 'X-Api-Key': 'x' } });
+    assert.equal(r.status, 413);
+  });
+
   test('inbound push needs a valid API key', async () => {
     assert.equal((await push(SAMPLE, 'pchis_wrong')).status, 401);
     assert.equal((await push(SAMPLE, '')).status, 401);
