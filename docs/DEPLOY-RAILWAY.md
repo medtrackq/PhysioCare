@@ -35,7 +35,7 @@ Railway มี region ให้เลือก 4 แห่ง (US West, US East,
 1. เข้า railway.com → **New Project** → **Deploy from GitHub repo**
 2. ถ้า Railway ขอสิทธิ์เข้าถึง GitHub ให้อนุญาตเฉพาะ repo `medtrackq/PhysioCare`
 3. เลือก repo **medtrackq/PhysioCare**
-4. Railway จะสร้าง service และเริ่ม build ทันที — **การ deploy ครั้งแรกนี้จะล้มเหลว** เพราะยังไม่มีฐานข้อมูลและตัวแปร ซึ่งเป็นเรื่องปกติ ทำขั้นถัดไปต่อได้เลย
+4. Railway จะสร้าง service และเริ่ม build ทันที — **deployment แรกจะขึ้นสถานะ CRASHED** เพราะยังไม่มีฐานข้อมูลและตัวแปร ซึ่งเป็นเรื่องปกติ (Deploy Logs จะบอกว่าขาด `DATABASE_URL`) ไม่ต้องกด Restart ให้ทำขั้นที่ 2–6 ก่อน แล้วค่อย deploy ใหม่ในขั้นที่ 7
 
 **ตรวจ:** เปิด service → **Settings** → **Source** ต้องเป็น `medtrackq/PhysioCare` branch `claude/physiocare-system` และใน **Build** ต้องแสดงว่าใช้ **Dockerfile** (Railway เลือกเองเมื่อพบ `Dockerfile` ที่ root ของ repo)
 
@@ -174,6 +174,7 @@ Railway มีระบบ backup สำหรับ service ที่มี vol
 
 | อาการ | สาเหตุที่พบบ่อย | วิธีแก้ |
 |---|---|---|
+| สถานะ CRASHED และ Deploy Logs ขึ้น `DATABASE_URL is not set` | ยังไม่ได้เพิ่ม PostgreSQL หรือยังไม่ได้ตั้ง `DATABASE_URL` | ขั้นที่ 2 และ 5 แล้ว Redeploy |
 | Deploy Logs ขึ้น `JWT_SECRET is required in production` | ยังไม่ได้ตั้ง `JWT_SECRET` | ขั้นที่ 5 |
 | `connect ECONNREFUSED` หรือ `getaddrinfo ENOTFOUND` | `DATABASE_URL` ผิด หรือชื่อ service Postgres ไม่ตรงกับที่อ้างใน `${{...}}` | ตรวจตัวแปรและชื่อ service ฐานข้อมูล |
 | `permission denied` ตอนอัปโหลดรูป | ไม่ได้ตั้ง `RAILWAY_RUN_UID=0` หรือ mount path ไม่ใช่ `/data/uploads` | ขั้นที่ 4–5 |

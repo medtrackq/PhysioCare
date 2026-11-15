@@ -34,6 +34,9 @@ function listFiles() {
 }
 
 async function main() {
+  if (!process.env.DATABASE_URL && process.env.NODE_ENV === 'production') {
+    throw new Error('DATABASE_URL is not set. On Railway: add a PostgreSQL database and set DATABASE_URL=${{Postgres.DATABASE_URL}} in this service\'s Variables (docs/DEPLOY-RAILWAY.md step 2 and 5).');
+  }
   if (args.has('--demo') && process.env.NODE_ENV === 'production' && !args.has('--force')) {
     throw new Error('Refusing to load demo data with NODE_ENV=production (use --force if you really mean it)');
   }

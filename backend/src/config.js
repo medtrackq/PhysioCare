@@ -3,7 +3,10 @@ const path = require('node:path');
 const env = process.env;
 
 if (env.NODE_ENV === 'production' && !env.JWT_SECRET) {
-  throw new Error('JWT_SECRET is required in production');
+  throw new Error('JWT_SECRET is required in production. On Railway: set JWT_SECRET (64 random hex characters) in this service\'s Variables (docs/DEPLOY-RAILWAY.md step 5).');
+}
+if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required in production. On Railway: set DATABASE_URL=${{Postgres.DATABASE_URL}} (docs/DEPLOY-RAILWAY.md step 2 and 5).');
 }
 
 module.exports = {
