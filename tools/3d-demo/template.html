@@ -15,12 +15,13 @@
     --accent: #0c6e7e;
     --accent-soft: #d8eef1;
     --warn: #b45309;
-    --scene-bg: #e6edf1;
-    --scene-ground: #d9e3e9;
-    --scene-grid-major: #c2d0d8;
-    --scene-grid-minor: #d2dde3;
-    --scene-wall: #c4d0d8;
-    --scene-storage: #edf2f5;
+    --scene-bg: #dfe7ec;
+    --scene-ground: #bfcad2;
+    --scene-corridor: #d8cbb3;
+    --scene-lobby: #e3d6bf;
+    --scene-wall: #eef1f4;
+    --scene-wall-top: #7b8a99;
+    --scene-storage: #d5dde6;
     --chart-fill: rgba(12, 110, 126, 0.16);
     --font-display: "Bai Jamjuree", "IBM Plex Sans Thai", system-ui, sans-serif;
     --font-body: "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
@@ -30,16 +31,16 @@
     :root:not([data-theme="light"]) {
       --bg: #0d1a24; --panel: #132532; --ink: #e3edf2; --muted: #93a7b3; --line: #22394a;
       --accent: #5ccfd9; --accent-soft: #163a46; --warn: #f5b04c;
-      --scene-bg: #0f2230; --scene-ground: #15303f; --scene-grid-major: #22475b; --scene-grid-minor: #1b3b4d;
-      --scene-wall: #3b5a6c; --scene-storage: #1a3646; --chart-fill: rgba(92, 207, 217, 0.18);
+      --scene-bg: #0f2230; --scene-ground: #1d3646; --scene-corridor: #6d6352; --scene-lobby: #7a6d58;
+      --scene-wall: #9fb2bf; --scene-wall-top: #3b5a6c; --scene-storage: #48606f; --chart-fill: rgba(92, 207, 217, 0.18);
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --bg: #0d1a24; --panel: #132532; --ink: #e3edf2; --muted: #93a7b3; --line: #22394a;
     --accent: #5ccfd9; --accent-soft: #163a46; --warn: #f5b04c;
-    --scene-bg: #0f2230; --scene-ground: #15303f; --scene-grid-major: #22475b; --scene-grid-minor: #1b3b4d;
-    --scene-wall: #3b5a6c; --scene-storage: #1a3646; --chart-fill: rgba(92, 207, 217, 0.18);
+    --scene-bg: #0f2230; --scene-ground: #1d3646; --scene-corridor: #6d6352; --scene-lobby: #7a6d58;
+    --scene-wall: #9fb2bf; --scene-wall-top: #3b5a6c; --scene-storage: #48606f; --chart-fill: rgba(92, 207, 217, 0.18);
     color-scheme: dark;
   }
 
@@ -114,7 +115,7 @@
     <div class="brand">
       <span class="tag">PhysioCare · Clinic floor</span>
       <h1>ห้องกายภาพบำบัดทั้งคลินิกในมุมมองเดียว</h1>
-      <p>เตียง อุปกรณ์ ผู้ป่วย และนักกายภาพ ที่ระบบจัดสรรให้อัตโนมัติ เล่นดูได้ทั้งวันตั้งแต่ 08:00 ถึง 20:00</p>
+      <p>จำลองหนึ่งวันของคลินิกจากตารางนัดที่ระบบจัดให้ ผู้ป่วยมาถึง นั่งรอ เดินเข้าห้อง ขึ้นเตียง นักกายภาพเดินมารักษา อุปกรณ์ถูกเข็นมาข้างเตียง แล้วผู้ช่วยเปลี่ยนผ้าปูรอคนถัดไป</p>
     </div>
     <span class="demo-pill" id="demo-date">ข้อมูลทดลอง</span>
   </header>
@@ -123,17 +124,17 @@
     <div class="viewport">
       <div id="scene"></div>
       <div class="clock"><b id="clock">10:30</b><span id="clock-sub">ผู้ป่วยในคลินิก –</span></div>
-      <div class="hint">ลากเพื่อหมุน · Shift+ลากเพื่อเลื่อน · ล้อเมาส์เพื่อซูม · คลิกเตียงเพื่อดูรายละเอียด</div>
+      <div class="hint">ลากเพื่อหมุน · Shift+ลากเพื่อเลื่อน · ล้อเมาส์เพื่อซูม · คลิกคน เตียง หรืออุปกรณ์</div>
     </div>
 
     <aside class="side">
       <div class="panel">
         <div class="controls">
-          <button id="play" class="primary" type="button">▶ เล่นทั้งวัน</button>
+          <button id="play" class="primary" type="button">⏸ หยุด</button>
           <select id="speed" aria-label="ความเร็ว">
-            <option value="900">ช้า</option>
-            <option value="550" selected>ปกติ</option>
-            <option value="250">เร็ว</option>
+            <option value="1">ช้า · 1 นาที/วินาที</option>
+            <option value="3" selected>ปกติ · 3 นาที/วินาที</option>
+            <option value="10">เร็ว · 10 นาที/วินาที</option>
           </select>
           <button id="reset" type="button">มุมกล้องเริ่มต้น</button>
         </div>
@@ -146,9 +147,13 @@
         <h3>กำลังรักษาอยู่</h3>
         <div class="feed" id="feed"></div>
       </div>
+      <div class="panel">
+        <h3>เหตุการณ์ล่าสุด</h3>
+        <div class="feed" id="events"></div>
+      </div>
       <div class="panel" id="detail">
         <h3>รายละเอียด</h3>
-        <div class="empty">คลิกเตียง อุปกรณ์ หรือห้องในผัง</div>
+        <div class="empty">คลิกผู้ป่วย นักกายภาพ เตียง หรืออุปกรณ์ในผัง</div>
       </div>
       <div class="panel">
         <div class="legend" id="legend"></div>
@@ -186,35 +191,44 @@
 
 (function () {
   const DATA = JSON.parse(document.getElementById('demo-data').textContent);
-  const snaps = DATA.snapshots;
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-  const tm = (iso) => new Date(iso).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
+  const MIN = 60000;
+  const OPEN = 7 * 60 + 30;
+  const CLOSE = 19 * 60;
+  const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(Math.floor(m % 60)).padStart(2, '0')}`;
+  const tm = (v) => new Date(v).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' });
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const day0 = new Date(`${DATA.date}T00:00:00+07:00`).getTime();
+  const minuteOf = (t) => (t - day0) / MIN;
+  const appts = DATA.appts.map((a) => ({ ...a, s: new Date(a.start_at).getTime(), e: new Date(a.end_at).getTime() }));
+  const real = appts.filter((a) => a.status !== 'no_show');
 
-  const dateTh = new Date(`${DATA.day.date}T12:00:00+07:00`).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const dateTh = new Date(`${DATA.date}T12:00:00+07:00`).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   $('demo-date').textContent = `ข้อมูลทดลอง · ${dateTh}`;
-  $('day-summary').textContent = `${DATA.day.total} นัด · ใช้เตียง ${DATA.day.withBed} · ใช้อุปกรณ์ ${DATA.day.withEquipment}`;
+  $('day-summary').textContent = `${real.length} นัด · ใช้เตียง ${real.filter((a) => a.bed_id).length} · ใช้อุปกรณ์ ${real.filter((a) => a.equipment.length).length}`;
 
-  // legend
   const leg = [
-    ...Object.entries(STATE_COLORS).filter(([k]) => k !== 'out_of_service').map(([k, c]) => [c, `เตียง${STATE_TH[k]}`]),
-    ['#2563eb', 'อุปกรณ์กำลังใช้'], ['#ef4444', 'อุปกรณ์ชำรุด'], ['#f4c58f', 'ผู้ป่วย'],
+    ...Object.entries(STATE_COLORS).filter(([k]) => k !== 'out_of_service').map(([k, c]) => [c, `วงแสงเตียง: ${STATE_TH[k]}`]),
+    ['#38bdf8', 'ไฟอุปกรณ์: กำลังใช้'], ['#ef4444', 'ไฟอุปกรณ์: ชำรุด'], ['#94a3b8', 'ผู้ช่วย (ชุดเทา)'],
   ];
-  $('legend').innerHTML = leg.map(([c, l]) => `<span><i style="background:${c}"></i>${esc(l)}</span>`).join('')
-    + DATA.staff.map((s) => `<span><i style="background:${esc(s.color)};border-radius:50%"></i>${esc(s.name)}</span>`).join('');
+  $('legend').innerHTML = leg.map(([c, l]) => `<span><i style="background:${c};border-radius:50%"></i>${esc(l)}</span>`).join('')
+    + DATA.staff.map((s) => `<span><i style="background:${esc(s.color)}"></i>${esc(s.name)}</span>`).join('');
 
   // ---------- 3D ----------
   const sceneTheme = () => ({
-    bg: css('--scene-bg'), ground: css('--scene-ground'), gridMajor: css('--scene-grid-major'), gridMinor: css('--scene-grid-minor'),
-    wall: css('--scene-wall'), storage: css('--scene-storage'),
+    bg: css('--scene-bg'), ground: css('--scene-ground'), corridor: css('--scene-corridor'), lobby: css('--scene-lobby'),
+    wall: css('--scene-wall'), wallTop: css('--scene-wall-top'), storage: css('--scene-storage'),
   });
   let view = null;
   if (window.THREE) {
     try {
-      view = createClinic3D($('scene'), { THREE: window.THREE, theme: sceneTheme(), onSelect: showDetail });
+      view = createClinic3D($('scene'), { THREE: window.THREE, theme: sceneTheme(), onSelect: (sel) => { selected = sel; showDetail(); } });
+      view.setLayout(DATA.board);
+      view.setDay(DATA.appts);
+      view.frame(1.25);
     } catch (e) {
+      view = null;
       $('scene').innerHTML = '<div class="noscene">เบราว์เซอร์นี้แสดงผล 3 มิติ (WebGL) ไม่ได้ ข้อมูลด้านขวายังเล่นตามเวลาได้ตามปกติ</div>';
     }
   } else {
@@ -224,60 +238,123 @@
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { retheme(); drawChart(); });
   new MutationObserver(() => { retheme(); drawChart(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  // ---------- state ----------
-  let idx = Math.max(0, snaps.findIndex((s) => s.minute >= 10 * 60 + 30));
-  $('scrub').max = String(snaps.length - 1);
-
-  function show(i) {
-    idx = Math.max(0, Math.min(snaps.length - 1, i));
-    const s = snaps[idx];
-    $('scrub').value = String(idx);
-    $('clock').textContent = hhmm(s.minute);
-    $('clock-sub').textContent = `ผู้ป่วยในคลินิก ${s.kpis.patientsNow} คน`;
-    const k = s.kpis;
-    $('kpis').innerHTML = [
-      ['ผู้ป่วยตอนนี้', k.patientsNow], ['นักกายภาพที่รักษา', k.therapistsBusy], ['เตียงมีผู้ป่วย', `${k.bedsOccupied}/${k.bedsTotal}`],
-      ['อุปกรณ์กำลังใช้', k.equipmentInUse], ['อุปกรณ์ชำรุด/ซ่อม', k.equipmentDown], ['นัดที่เหลือวันนี้', k.remainingToday],
-    ].map(([l, v]) => `<div class="kpi"><small>${l}</small><b>${v}</b></div>`).join('');
-    const rows = [];
-    for (const r of s.rooms) {
-      for (const b of r.beds) if (b.current) rows.push({ a: b.current, where: `${r.code} · ${b.name}` });
-      for (const a of r.current || []) rows.push({ a, where: r.name });
+  // ---------- นาฬิกาจำลอง ----------
+  let t = day0 + (9 * 60 + 40) * MIN;
+  let playing = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let last = performance.now();
+  function tick() {
+    const now = performance.now();
+    const dt = Math.min(now - last, 200);
+    last = now;
+    if (playing) {
+      t += dt * Number($('speed').value) * 60;
+      if (minuteOf(t) >= CLOSE) t = day0 + OPEN * MIN; // วนกลับเช้า
     }
-    rows.sort((x, y) => new Date(x.a.start_at) - new Date(y.a.start_at));
-    $('feed').innerHTML = rows.length ? rows.map(({ a, where }) => `
-      <div class="row"><span class="dot" style="background:${esc(a.therapist_color)}"></span>
-        <span>${esc(a.patient_name)} · ${esc(a.therapist_name)}<br><span class="where">${esc(where)}</span></span>
-        <span class="mono where">${tm(a.start_at)}–${tm(a.end_at)}</span></div>`).join('')
-      : '<div class="empty">ขณะนี้ไม่มีผู้ป่วยในห้องรักษา</div>';
-    if (view) view.update(s);
-    drawChart();
+    return t;
+  }
+  if (view) view.setClock(tick);
+  else (function loop() { tick(); requestAnimationFrame(loop); })();
+  const setPlaying = (v) => { playing = v; $('play').textContent = v ? '⏸ หยุด' : '▶ เล่น'; };
+  setPlaying(playing);
+
+  // สถิติแบบไม่ต้องพึ่ง WebGL (ใช้เมื่อแสดง 3D ไม่ได้ และใช้วาดกราฟ)
+  const inClinicAt = (x) => real.filter((a) => x >= a.s - 9 * MIN && x < a.e + 3 * MIN).length;
+  function stats(x) {
+    if (view) return view.stats(x);
+    const active = real.filter((a) => x >= a.s && x < a.e);
+    return {
+      patientsNow: inClinicAt(x), inTreatment: active.length, waiting: real.filter((a) => x >= a.s - 9 * MIN && x < a.s).length,
+      therapistsBusy: new Set(active.map((a) => a.therapist_id)).size, bedsOccupied: active.filter((a) => a.bed_id).length,
+      bedsTotal: DATA.board.rooms.reduce((n, r) => n + r.beds.filter((b) => b.status === 'available').length, 0),
+      equipmentInUse: new Set(active.flatMap((a) => a.equipment.map((e) => e.id))).size,
+      equipmentDown: DATA.board.equipment.filter((e) => ['broken', 'maintenance'].includes(e.status)).length,
+      completed: real.filter((a) => a.e <= x).length, remainingToday: real.filter((a) => a.s > x).length, active,
+    };
+  }
+  function events(x) {
+    if (view) return view.events(x, 9);
+    const out = [];
+    for (const a of appts) {
+      if (a.status === 'no_show') { if (a.s <= x) out.push({ t: a.s, type: 'no_show', a }); continue; }
+      if (a.s - 9 * MIN <= x) out.push({ t: a.s - 9 * MIN, type: 'arrive', a });
+      if (a.s <= x) out.push({ t: a.s, type: 'start', a });
+      if (a.e <= x) out.push({ t: a.e, type: 'end', a });
+    }
+    return out.sort((p, q) => q.t - p.t).slice(0, 9);
   }
 
-  function showDetail(sel) {
+  // ---------- แผงข้อมูล ----------
+  const EV = { arrive: ['มาถึงคลินิก', '#f59e0b'], start: ['เริ่มรักษา', '#0ea5e9'], end: ['รักษาเสร็จ กลับบ้าน', '#10b981'], no_show: ['ไม่มาตามนัด', '#ef4444'] };
+  let selected = null;
+  function panel() {
+    const m = minuteOf(t);
+    $('clock').textContent = hhmm(m);
+    const k = stats(t);
+    $('clock-sub').textContent = `ในคลินิก ${k.patientsNow} คน · กำลังรักษา ${k.inTreatment} · นั่งรอ ${k.waiting}`;
+    $('kpis').innerHTML = [
+      ['ผู้ป่วยในคลินิก', k.patientsNow], ['กำลังรักษา', k.inTreatment], ['นั่งรอ', k.waiting],
+      ['นักกายภาพทำงาน', k.therapistsBusy], ['เตียงมีผู้ป่วย', `${k.bedsOccupied}/${k.bedsTotal}`], ['อุปกรณ์กำลังใช้', k.equipmentInUse],
+      ['อุปกรณ์ชำรุด/ซ่อม', k.equipmentDown], ['รักษาเสร็จแล้ว', k.completed], ['นัดที่เหลือ', k.remainingToday],
+    ].map(([l, v]) => `<div class="kpi"><small>${l}</small><b>${v}</b></div>`).join('');
+    const act = [...k.active].sort((p, q) => p.s - q.s);
+    $('feed').innerHTML = act.length ? act.map((a) => `
+      <div class="row"><span class="dot" style="background:${esc(a.therapist_color)}"></span>
+        <span>${esc(a.patient_name)} · ${esc(a.therapist_name)}<br><span class="where">${esc([a.room_name, a.bed_name].filter(Boolean).join(' · '))}</span></span>
+        <span class="mono where">${tm(a.s)}–${tm(a.e)}</span></div>`).join('')
+      : '<div class="empty">ขณะนี้ไม่มีผู้ป่วยในห้องรักษา</div>';
+    const evs = events(t);
+    $('events').innerHTML = evs.length ? evs.map((e) => `
+      <div class="row"><span class="dot" style="background:${EV[e.type][1]}"></span>
+        <span>${esc(e.a.patient_name)} ${EV[e.type][0]}${e.type === 'start' ? `<br><span class="where">${esc(e.a.bed_name || e.a.room_name || '')} · ${esc(e.a.therapist_name)}</span>` : ''}</span>
+        <span class="mono where">${tm(e.t)}</span></div>`).join('')
+      : '<div class="empty">ยังไม่มีเหตุการณ์</div>';
+    if (document.activeElement !== $('scrub')) $('scrub').value = String(Math.round(m));
+    if (selected && selected.kind !== 'room') showDetail();
+    drawMarker();
+  }
+  setInterval(panel, 250);
+
+  function showDetail() {
     const el = $('detail');
     const head = '<h3>รายละเอียด</h3>';
-    if (!sel) { el.innerHTML = `${head}<div class="empty">คลิกเตียง อุปกรณ์ หรือห้องในผัง</div>`; return; }
-    const { kind, data } = sel;
-    if (kind === 'bed') {
+    if (!selected) { el.innerHTML = `${head}<div class="empty">คลิกผู้ป่วย นักกายภาพ เตียง หรืออุปกรณ์ในผัง</div>`; return; }
+    const { kind, data } = selected;
+    const phase = (a) => (a.status === 'no_show' ? 'ไม่มาตามนัด' : t < a.s - 9 * MIN ? 'ยังไม่มาถึง' : t < a.s ? 'นั่งรอ / เดินเข้าห้อง' : t < a.e ? 'กำลังรักษา' : 'เสร็จแล้ว');
+    if (kind === 'patient') {
+      el.innerHTML = `${head}<div><b>${esc(data.patient_name)}</b> · ${phase(data)}</div>
+        <div class="where">${esc(data.diagnosis_name || '')}</div>
+        <div style="margin-top:4px">${esc(data.therapist_name)} <span class="mono where">${tm(data.s)}–${tm(data.e)}</span></div>
+        <div class="where">${esc([data.room_name, data.bed_name].filter(Boolean).join(' · '))}</div>
+        ${data.equipment?.length ? `<div class="where">อุปกรณ์: ${data.equipment.map((e) => esc(e.name)).join(', ')}</div>` : ''}`;
+    } else if (kind === 'therapist') {
+      const cur = data.appts.find((a) => t >= a.s && t < a.e);
+      const next = data.appts.find((a) => a.s > t);
+      el.innerHTML = `${head}<div><b>${esc(data.name)}</b></div><div class="where">นัดวันนี้ ${data.appts.length} ราย</div>
+        <div style="margin-top:4px">${cur ? `กำลังรักษา ${esc(cur.patient_name)} · ${esc(cur.bed_name || cur.room_name || '')}` : 'ว่าง / บันทึกเวชระเบียน'}</div>
+        ${next ? `<div class="where">ถัดไป ${tm(next.s)} ${esc(next.patient_name)}</div>` : ''}`;
+    } else if (kind === 'bed') {
       el.innerHTML = `${head}<div><b>${esc(data.roomName)} · ${esc(data.name)}</b></div>
         <div class="where">${esc(data.code)} · ${STATE_TH[data.state]}${data.notes ? ` · ${esc(data.notes)}` : ''}</div>
-        ${data.current ? `<div style="margin-top:6px">${esc(data.current.patient_name)} กับ ${esc(data.current.therapist_name)}<br><span class="mono where">${tm(data.current.start_at)}–${tm(data.current.end_at)}</span></div>` : ''}
-        ${data.next ? `<div class="where" style="margin-top:4px">ถัดไป ${tm(data.next.start_at)} ${esc(data.next.patient_name)}</div>` : ''}`;
+        ${data.current ? `<div style="margin-top:6px">${esc(data.current.patient_name)} กับ ${esc(data.current.therapist_name)}<br><span class="mono where">${tm(data.current.s)}–${tm(data.current.e)}</span></div>` : ''}
+        ${data.next ? `<div class="where" style="margin-top:4px">ถัดไป ${tm(data.next.s)} ${esc(data.next.patient_name)}</div>` : ''}`;
     } else if (kind === 'equipment') {
       const st = { in_use: 'กำลังใช้งาน', available: 'พร้อมใช้งาน', broken: 'ชำรุด', maintenance: 'ส่งซ่อม' }[data.state];
       el.innerHTML = `${head}<div><b>${esc(data.name)}</b></div><div class="where">${esc(data.asset_code)} · ${st}</div>
-        <div class="where">${data.room_id ? 'ติดตั้งประจำห้อง' : 'เคลื่อนย้ายได้'}</div>`;
-    } else if (kind === 'gymPatient') {
-      el.innerHTML = `${head}<div><b>${esc(data.patient_name)}</b> กับ ${esc(data.therapist_name)}</div><div class="where">${esc(data.roomName)} · ${tm(data.start_at)}–${tm(data.end_at)}</div>`;
+        <div class="where">${data.room_id ? 'ติดตั้งประจำห้อง' : 'เคลื่อนย้ายได้ เก็บที่คลังอุปกรณ์'}</div>`;
     } else {
+      const n = stats(t).active.filter((a) => a.room_id === data.id).length;
       el.innerHTML = `${head}<div><b>${esc(data.code)} · ${esc(data.name)}</b></div>
         <div class="where">${data.beds.length} เตียง · รับพร้อมกัน ${data.capacity} คน · ${data.w}×${data.d} ม.</div>
-        <div style="margin-top:4px">ผู้ป่วยตอนนี้ ${data.occupancyNow}/${data.capacity}</div>`;
+        <div style="margin-top:4px">ผู้ป่วยตอนนี้ ${n}/${data.capacity}</div>`;
     }
   }
 
-  // ---------- chart ----------
+  // ---------- กราฟทั้งวัน ----------
+  const samples = [];
+  for (let m = OPEN; m <= CLOSE; m += 5) samples.push({ m, v: inClinicAt(day0 + m * MIN) });
+  const scrub = $('scrub');
+  scrub.min = String(OPEN); scrub.max = String(CLOSE);
+  let base = null;
   function drawChart() {
     const cv = $('chart');
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -288,48 +365,42 @@
     const ctx = cv.getContext('2d');
     ctx.scale(dpr, dpr);
     const L = 34, R = 20, T = 8, B = 18;
-    const maxV = Math.max(4, ...snaps.map((s) => s.kpis.patientsNow));
-    const yMax = Math.ceil(maxV / 2) * 2;
-    const x = (i) => L + (i / (snaps.length - 1)) * (w - L - R);
+    const yMax = Math.ceil(Math.max(4, ...samples.map((s) => s.v)) / 2) * 2;
+    const x = (m) => L + ((m - OPEN) / (CLOSE - OPEN)) * (w - L - R);
     const y = (v) => T + (1 - v / yMax) * (h - T - B);
     ctx.font = `11px ${css('--font-mono')}`;
-    ctx.fillStyle = css('--muted');
-    ctx.strokeStyle = css('--line');
-    ctx.lineWidth = 1;
+    ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
     for (let v = 0; v <= yMax; v += yMax / 2) {
       ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(w - R, y(v)); ctx.stroke();
       ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(String(v), L - 6, y(v));
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    snaps.forEach((s, i) => { if (s.minute % 120 === 0) ctx.fillText(hhmm(s.minute), x(i), h - B + 4); });
-    ctx.beginPath();
-    snaps.forEach((s, i) => (i ? ctx.lineTo(x(i), y(s.kpis.patientsNow)) : ctx.moveTo(x(i), y(s.kpis.patientsNow))));
-    ctx.lineTo(x(snaps.length - 1), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+    for (let m = 8 * 60; m <= CLOSE; m += 120) ctx.fillText(hhmm(m), x(m), h - B + 4);
+    const path = () => { ctx.beginPath(); samples.forEach((s, i) => (i ? ctx.lineTo(x(s.m), y(s.v)) : ctx.moveTo(x(s.m), y(s.v)))); };
+    path(); ctx.lineTo(x(CLOSE), y(0)); ctx.lineTo(x(OPEN), y(0)); ctx.closePath();
     ctx.fillStyle = css('--chart-fill'); ctx.fill();
-    ctx.beginPath();
-    snaps.forEach((s, i) => (i ? ctx.lineTo(x(i), y(s.kpis.patientsNow)) : ctx.moveTo(x(i), y(s.kpis.patientsNow))));
-    ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.stroke();
-    // current time marker
+    path(); ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.stroke();
+    base = { img: ctx.getImageData(0, 0, cv.width, cv.height), x, y, T, B, h, dpr };
+    drawMarker();
+  }
+  function drawMarker() {
+    if (!base) return;
+    const ctx = $('chart').getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.putImageData(base.img, 0, 0);
+    ctx.setTransform(base.dpr, 0, 0, base.dpr, 0, 0);
+    const m = Math.min(CLOSE, Math.max(OPEN, minuteOf(t)));
     ctx.strokeStyle = css('--ink'); ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x(idx), T); ctx.lineTo(x(idx), h - B); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(base.x(m), base.T); ctx.lineTo(base.x(m), base.h - base.B); ctx.stroke();
     ctx.fillStyle = css('--accent');
-    ctx.beginPath(); ctx.arc(x(idx), y(snaps[idx].kpis.patientsNow), 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(base.x(m), base.y(inClinicAt(t)), 4, 0, Math.PI * 2); ctx.fill();
   }
   new ResizeObserver(drawChart).observe($('chart'));
-  $('scrub').addEventListener('input', (e) => { stop(); show(Number(e.target.value)); });
+  scrub.addEventListener('input', () => { t = day0 + Number(scrub.value) * MIN; panel(); });
 
-  // ---------- playback ----------
-  let timer = null;
-  function stop() { clearInterval(timer); timer = null; $('play').textContent = '▶ เล่นทั้งวัน'; }
-  $('play').addEventListener('click', () => {
-    if (timer) { stop(); return; }
-    if (idx >= snaps.length - 1) show(0);
-    $('play').textContent = '⏸ หยุด';
-    timer = setInterval(() => { if (idx >= snaps.length - 1) { stop(); return; } show(idx + 1); }, Number($('speed').value));
-  });
-  $('speed').addEventListener('change', () => { if (timer) { stop(); $('play').click(); } });
-  $('reset').addEventListener('click', () => view && view.frame());
-
-  show(idx);
+  // ---------- ปุ่ม ----------
+  $('play').addEventListener('click', () => setPlaying(!playing));
+  $('reset').addEventListener('click', () => view && view.frame(1.25));
+  panel();
 })();
 </script>
