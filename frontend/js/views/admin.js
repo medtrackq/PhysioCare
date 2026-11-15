@@ -23,7 +23,7 @@ async function renderAdmin(root, { session }) {
           <td class="py-2">${esc(u.display_name)}</td><td>${esc(u.email)}</td><td>${esc(ROLE_TH[u.role])}</td>
           <td>${fmtDateTime(u.last_login_at)}</td>
           <td>${u.is_active ? '<span class="text-emerald-600">ใช้งาน</span>' : '<span class="text-slate-400">ปิด</span>'}${u.locked_until && new Date(u.locked_until) > new Date() ? ' <span class="text-rose-600">🔒</span>' : ''}</td>
-          <td class="text-right">${btn(u.is_active ? 'ปิดบัญชี' : 'เปิดบัญชี', `data-toggle="${u.id}" data-active="${u.is_active}"`, 'ghost')}</td>
+          <td class="text-right whitespace-nowrap">${btn('ตั้งรหัสผ่านใหม่', `data-pw="${u.id}" data-name="${esc(u.display_name)}"`, 'ghost')} ${btn(u.is_active ? 'ปิดบัญชี' : 'เปิดบัญชี', `data-toggle="${u.id}" data-active="${u.is_active}"`, 'ghost')}</td>
         </tr>`).join('')}</tbody></table></div>`)}
 
       ${roles.length ? card(`<div class="p-4 overflow-x-auto"><h2 class="font-semibold mb-3">สิทธิ์ตามบทบาท (RBAC Matrix)</h2>
@@ -44,6 +44,21 @@ async function renderAdmin(root, { session }) {
     let value;
     try { value = JSON.parse($(`[data-setting="${CSS.escape(key)}"]`).value); } catch { toast('รูปแบบ JSON ไม่ถูกต้อง', 'error'); return; }
     try { await api.put(`/settings/${encodeURIComponent(key)}`, { value }); toast('บันทึกแล้ว', 'success'); } catch (e) { showError(e); }
+  }));
+  $$('[data-pw]').forEach((b) => b.addEventListener('click', () => {
+    const m = modal(`ตั้งรหัสผ่านใหม่ · ${b.dataset.name}`, `
+      <form class="space-y-3 text-sm" id="pw-form">
+        <label class="block">รหัสผ่านใหม่ (≥8 ตัว มีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก และตัวเลข)<input name="password" type="password" required minlength="8" autocomplete="new-password" class="${input}"></label>
+        <label class="block">ยืนยันรหัสผ่าน<input name="confirm" type="password" required minlength="8" autocomplete="new-password" class="${input}"></label>
+        <p class="text-xs text-slate-500">แจ้งรหัสผ่านให้ผู้ใช้ทางช่องทางที่ปลอดภัย</p>
+        ${btn('บันทึกรหัสผ่าน', 'type="submit"')}
+      </form>`);
+    $('#pw-form', m.el).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(e.target));
+      if (f.password !== f.confirm) { toast('รหัสผ่านทั้งสองช่องไม่ตรงกัน', 'error'); return; }
+      try { await api.patch(`/users/${b.dataset.pw}`, { password: f.password }); toast('ตั้งรหัสผ่านใหม่แล้ว', 'success'); m.close(); } catch (err) { showError(err); }
+    });
   }));
   $$('[data-toggle]').forEach((b) => b.addEventListener('click', async () => {
     try { await api.patch(`/users/${b.dataset.toggle}`, { isActive: b.dataset.active !== 'true' }); renderAdmin(root, { session }); } catch (e) { showError(e); }

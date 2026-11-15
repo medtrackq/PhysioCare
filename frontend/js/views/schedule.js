@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   $, $$, esc, badge, APPT_STATUS, pageHeader, btn, input, modal, toast, showError,
-  fmtTime, fmtDateTime, bkkToday, bkkISO,
+  fmtTime, fmtDateTime, bkkToday, bkkISO, formModal,
 } from '../ui.js';
 import { recBadge, sourceLink, interventionsHtml } from './knowledge.js';
 
@@ -328,8 +328,13 @@ async function openAppointment(id, session, reload) {
     </dl>
     <div class="flex flex-wrap gap-2 mt-5">
       ${session.can('appointments:write') ? (NEXT[a.status] || []).map(([s, l]) => btn(l, `data-next="${s}"`, s === 'cancelled' || s === 'no_show' ? 'ghost' : 'primary')).join('') : ''}
+      ${session.can('appointments:write') && ['booked', 'confirmed'].includes(a.status) ? btn('เลื่อนนัด', 'data-reschedule', 'ghost') : ''}
       ${session.can('emr:read') ? `<a href="#/emr/${a.id}" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 hover:bg-slate-50">📝 เปิดเวชระเบียน</a>` : ''}
     </div>`);
+  $('[data-reschedule]', m.el)?.addEventListener('click', () => {
+    m.close();
+    openReschedule(a, reload);
+  });
   $$('[data-next]', m.el).forEach((b) => b.addEventListener('click', async () => {
     const status = b.dataset.next;
     const reason = status === 'cancelled' ? prompt('เหตุผลการยกเลิก') : undefined;
@@ -569,4 +574,36 @@ function openBooking(reload, { query = '', referralId = null } = {}) {
       else showError(err);
     }
   }
+}
+
+/** เลื่อนนัด: ระบบตรวจการชนทั้งคน ผู้ป่วย อุปกรณ์ และห้อง/เตียงใหม่ทั้งหมด (จัดห้อง/เตียงใหม่ให้ถ้าที่เดิมไม่ว่าง) */
+async function openReschedule(a, reload) {
+  const staff = await api.get('/staff?position=physiotherapist').catch(() => []);
+  const list = staff.items || staff;
+  const bkk = (iso) => new Date(new Date(iso).getTime() + 7 * 3600e3).toISOString();
+  const dur = Math.round((new Date(a.end_at) - new Date(a.start_at)) / 60000);
+  formModal(`เลื่อนนัด · ${a.patient_name}`, [
+    { name: 'date', label: 'วันที่', type: 'date', required: true, value: bkk(a.start_at).slice(0, 10) },
+    { name: 'time', label: 'เวลาเริ่ม', type: 'time', required: true, value: bkk(a.start_at).slice(11, 16), attrs: 'step="300"' },
+    { name: 'duration', label: 'ระยะเวลา (นาที)', type: 'number', required: true, value: dur, attrs: 'min="10" max="240" step="5"' },
+    { name: 'therapistId', label: 'นักกายภาพ', type: 'select', required: true, value: a.therapist_id,
+      options: list.filter((s) => s.is_active !== false).map((s) => ({ value: s.id, label: `${s.title || ''}${s.first_name} ${s.last_name}` })) },
+  ], async (v, m) => {
+    const start = new Date(`${v.date}T${v.time}:00+07:00`);
+    const end = new Date(start.getTime() + Number(v.duration) * 60000);
+    try {
+      await api.patch(`/appointments/${a.id}/reschedule`, {
+        startAt: start.toISOString(), endAt: end.toISOString(), version: a.version, therapistId: v.therapistId, acknowledgeWarnings: true,
+      });
+    } catch (err) {
+      if (err.code === 'SCHEDULE_CONFLICT') {
+        const msgs = (err.details?.conflicts || []).map((c) => c.message).filter(Boolean);
+        throw new Error(`เวลานี้ชนกับนัดอื่น${msgs.length ? `: ${msgs.join(' · ')}` : ''} — ลองเวลาอื่น หรือใช้ "+ จองนัด" เพื่อดูช่องที่ว่าง`);
+      }
+      throw err;
+    }
+    toast('เลื่อนนัดแล้ว', 'success');
+    m.close();
+    reload();
+  }, { submitLabel: 'เลื่อนนัด', intro: '<p class="text-sm text-slate-600 mb-3">ระบบจะตรวจว่านักกายภาพ ผู้ป่วย อุปกรณ์ และห้อง/เตียงว่างในเวลาใหม่ ถ้าห้อง/เตียงเดิมไม่ว่างจะจัดให้ใหม่</p>' });
 }
