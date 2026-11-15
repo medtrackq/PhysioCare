@@ -45,7 +45,9 @@ export const btn = (label, attrs = '', variant = 'primary') => {
     ghost: 'bg-white hover:bg-slate-50 text-slate-700 ring-1 ring-inset ring-slate-300',
     danger: 'bg-rose-600 hover:bg-rose-700 text-white',
   }[variant];
-  return `<button type="button" class="inline-flex items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${v}" ${attrs}>${label}</button>`;
+  // ใส่ type="button" เฉพาะเมื่อผู้เรียกไม่ได้กำหนด type เอง (เช่น type="submit") — attribute ซ้ำ เบราว์เซอร์ใช้ตัวแรก
+  const type = /\btype\s*=/.test(attrs) ? '' : 'type="button" ';
+  return `<button ${type}class="inline-flex items-center justify-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${v}" ${attrs}>${label}</button>`;
 };
 export const input = 'w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500';
 export const pageHeader = (title, sub = '', actions = '') => `
