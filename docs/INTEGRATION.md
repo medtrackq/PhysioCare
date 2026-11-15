@@ -1,5 +1,7 @@
 # เชื่อมต่อระบบโรงพยาบาล (HIS) — ฟังก์ชันเสริม
 
+> เอกสารข้อกำหนดสำหรับฝ่าย IT โรงพยาบาล (PDF): [integration/PhysioCare-HIS-Interface-Spec-v1.0.pdf](integration/PhysioCare-HIS-Interface-Spec-v1.0.pdf)
+
 > **Optional:** ระบบ PhysioCare ทำงานครบโดยไม่ต้องเชื่อมต่อ โมดูลนี้ไม่มีผลใด ๆ จนกว่าผู้ดูแลจะสร้าง connector และเปิดใช้งาน
 > (เมนู **เชื่อมต่อ HIS** เห็นเฉพาะผู้ที่มีสิทธิ์ `integration:manage` = ผู้ดูแลระบบ)
 
