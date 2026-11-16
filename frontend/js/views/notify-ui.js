@@ -11,7 +11,7 @@ const STATE = {
   opted_out: ['ผู้ป่วยขอหยุดรับข้อความ', 'bg-amber-50 text-amber-700 ring-amber-200'],
   blocked: ['ผู้ป่วยบล็อก LINE ของคลินิก', 'bg-rose-50 text-rose-700 ring-rose-200'],
 };
-const KIND_TH = { appointment_reminder: 'เตือนนัด', home_reminder: 'เตือนทำกายภาพ', test: 'ทดสอบ' };
+const KIND_TH = { appointment_reminder: 'เตือนนัด', home_reminder: 'เตือนทำกายภาพ', tele_reminder: 'วิดีโอคอล', test: 'ทดสอบ' };
 const QSTATUS_TH = { pending: 'รอส่ง', sent: 'ส่งแล้ว', failed: 'ส่งไม่สำเร็จ (จะลองใหม่)', dead: 'หยุดส่ง', skipped: 'ไม่ต้องส่ง' };
 
 /** ส่วน "แจ้งเตือนทาง LINE" ในหน้าต่างข้อมูลผู้ป่วย */
@@ -100,7 +100,7 @@ export async function renderNotifyAdmin(el) {
   $('#nq-run', el).addEventListener('click', async () => {
     try {
       const r = await api.post('/notify/run');
-      toast(`เพิ่มเข้าคิว ${r.scheduled.appointments + r.scheduled.home} · ส่งแล้ว ${r.delivered.sent} · ไม่สำเร็จ ${r.delivered.failed}`, r.delivered.failed ? 'warn' : 'success');
+      toast(`เพิ่มเข้าคิว ${r.scheduled.appointments + r.scheduled.home + (r.scheduled.tele || 0)} · ส่งแล้ว ${r.delivered.sent} · ไม่สำเร็จ ${r.delivered.failed}`, r.delivered.failed ? 'warn' : 'success');
       loadQueue();
     } catch (err) { showError(err); }
   });

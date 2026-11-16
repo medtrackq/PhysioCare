@@ -10,14 +10,18 @@ function createApp() {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdn.tailwindcss.com', 'https://cdnjs.cloudflare.com'],
+        // cdn.jsdelivr.net + wasm: ตัวตรวจจับท่าทาง (MediaPipe) สำหรับนับท่าด้วยกล้อง — ประมวลผลในเครื่องผู้ป่วย
+        scriptSrc: ["'self'", "'unsafe-inline'", "'wasm-unsafe-eval'", 'https://cdn.tailwindcss.com', 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com'],
         imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", 'https://cdn.jsdelivr.net', 'https://storage.googleapis.com'],
+        mediaSrc: ["'self'", 'blob:'],
       },
     },
   }));
+  // กล้อง/ไมค์ใช้ได้เฉพาะหน้าของระบบเอง (นับท่าด้วยกล้อง, วิดีโอคอล)
+  app.use((_req, res, next) => { res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(), payment=()'); next(); });
   if (config.corsOrigin) {
     app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', config.corsOrigin);

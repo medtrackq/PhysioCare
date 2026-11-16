@@ -58,7 +58,7 @@ const DAY = nextWorkday(2);
 before(async () => {
   const sql = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'db', f), 'utf8');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql', '005_floor_plan.sql', '006_integration.sql', '007_home_program.sql', '008_notifications.sql', 'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql', 'demo/104_demo_floor_plan.sql', 'demo/105_demo_floor_plan_corridor.sql']) {
+  for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql', '005_floor_plan.sql', '006_integration.sql', '007_home_program.sql', '008_notifications.sql', '009_camera_telerehab.sql', 'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql', 'demo/104_demo_floor_plan.sql', 'demo/105_demo_floor_plan_corridor.sql']) {
     await pool.query(sql(f));
   }
   await sse.startListener();

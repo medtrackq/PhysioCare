@@ -182,6 +182,7 @@ $ sh init-env.sh physio.yourclinic.co.th
 | `MAX_UPLOAD_MB` | ขนาดรูปสูงสุดต่อไฟล์ |
 | `BACKUP_KEEP_DAYS` / `BACKUP_HOUR` | เก็บไฟล์สำรองกี่วัน / สำรองตอนกี่โมง (14 วัน, 02:00) |
 | `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` / `APP_BASE_URL` | (ไม่บังคับ) แจ้งเตือนผู้ป่วยทาง LINE — `APP_BASE_URL` คือ `https://โดเมนของคลินิก` ดู [LINE-SETUP.md](LINE-SETUP.md) แล้วรัน `docker compose up -d` ใหม่ |
+| `TURN_URLS` / `TURN_SECRET` (หรือ `TURN_USERNAME` / `TURN_CREDENTIAL`) | (ไม่บังคับ แต่แนะนำ) TURN server สำหรับวิดีโอคอล เมื่อผู้ป่วยอยู่หลังเครือข่ายที่ต่อตรงไม่ได้ เช่น 4G บางค่าย — ติดตั้ง coturn บนเซิร์ฟเวอร์เดียวกันได้ (เปิดพอร์ต UDP 3478 และช่วง relay) ตั้ง `use-auth-secret` แล้วใส่ค่าเดียวกันใน `TURN_SECRET` |
 | `HIS_TOKEN` / `HIS_PAYLOAD_KEY` | (ไม่บังคับ) ใส่เองเมื่อเชื่อมต่อระบบโรงพยาบาล: token ของ FHIR server และกุญแจเข้ารหัสชั้นที่ 2 — ดู [INTEGRATION.md](INTEGRATION.md) แล้วรัน `docker compose up -d` ใหม่ |
 
 **เก็บสำเนา `.env` ไว้นอกเซิร์ฟเวอร์** (เช่น password manager ของคลินิก) เพราะต้องใช้ตอนกู้ระบบ — บนคอมพิวเตอร์ของคุณ:

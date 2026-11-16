@@ -63,11 +63,18 @@ const exerciseBody = z.object({
   defaultPerDay: z.number().int().min(1).max(6).optional(),
   videoUrl: z.string().url().regex(/^https:\/\//, 'ต้องเป็นลิงก์ https').nullish(),
   isActive: z.boolean().optional(),
+  // นับด้วยกล้อง: ข้อต่อที่วัด + มุมท่าพัก/มุมเป้าหมาย (null = ไม่ใช้กล้องกับท่านี้)
+  camera: z.object({
+    joint: z.enum(['knee', 'hip', 'hip_leg', 'shoulder', 'elbow']),
+    rest: z.number().min(0).max(180),
+    target: z.number().min(0).max(180),
+    view: z.enum(['side', 'front']).default('side'),
+  }).refine((c) => Math.abs(c.rest - c.target) >= 15, 'มุมท่าพักกับมุมเป้าหมายต้องต่างกันอย่างน้อย 15 องศา').nullish(),
 });
 const EX_COLS = {
   code: 'code', nameTh: 'name_th', nameEn: 'name_en', bodyRegion: 'body_region', instructions: 'instructions', cautions: 'cautions',
   defaultSets: 'default_sets', defaultReps: 'default_reps', defaultHoldSec: 'default_hold_sec', defaultPerDay: 'default_per_day',
-  videoUrl: 'video_url', isActive: 'is_active',
+  videoUrl: 'video_url', isActive: 'is_active', camera: 'camera',
 };
 router.post('/exercises', authorize('emr:write'), validate({ body: exerciseBody }), async (req, res) => {
   const b = req.valid.body;
@@ -174,7 +181,7 @@ publicRouter.get('/', async (req, res) => {
 publicRouter.put('/log', validate({
   body: z.object({
     date: isoDate.optional(),
-    items: z.array(z.object({ itemId: uuid, done: z.boolean() })).max(20),
+    items: z.array(z.object({ itemId: uuid, done: z.boolean(), repsCounted: z.number().int().min(0).max(1000).nullish() })).max(20),
     pain: z.number().int().min(0).max(10).nullish(),
     difficulty: z.enum(['easy', 'ok', 'hard']).nullish(),
     symptoms: z.array(z.string().max(30)).max(10).default([]),

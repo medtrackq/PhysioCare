@@ -48,7 +48,7 @@ async function loadProgram(client, id) {
   if (!p) throw notFound('โปรแกรมที่บ้าน');
   const { rows: items } = await client.query(
     `SELECT i.id, i.exercise_id, ${ITEM_COLS.split(', ').map((c) => `i.${c}`).join(', ')}, i.is_active, i.dose_changed_at,
-            e.code, e.name_th, e.name_en, e.body_region, e.instructions, e.cautions, e.video_url
+            e.code, e.name_th, e.name_en, e.body_region, e.instructions, e.cautions, e.video_url, e.camera
        FROM home_program_items i JOIN exercises e ON e.id = i.exercise_id
       WHERE i.program_id = $1 ORDER BY i.is_active DESC, i.sort_order, e.name_th`, [id]);
   return { ...p, start_date: ymd(p.start_date), end_date: ymd(p.end_date), reminder_time: p.reminder_time ? String(p.reminder_time).slice(0, 5) : null, items };
@@ -182,7 +182,8 @@ async function dailySeries(client, program, from, to) {
   if (end < start) return [];
   const { rows: logs } = await client.query(
     `SELECT l.id, l.log_date, l.pain, l.difficulty, l.symptoms, l.note,
-            COALESCE(json_object_agg(li.item_id, li.done) FILTER (WHERE li.item_id IS NOT NULL), '{}') AS done
+            COALESCE(json_object_agg(li.item_id, li.done) FILTER (WHERE li.item_id IS NOT NULL), '{}') AS done,
+            COALESCE(json_object_agg(li.item_id, li.reps_counted) FILTER (WHERE li.reps_counted IS NOT NULL), '{}') AS counted
        FROM home_logs l LEFT JOIN home_log_items li ON li.log_id = l.id
       WHERE l.program_id = $1 AND l.log_date BETWEEN $2 AND $3 GROUP BY l.id`, [program.id, start, end]);
   const byDate = new Map(logs.map((l) => [ymd(l.log_date), l]));
@@ -196,6 +197,7 @@ async function dailySeries(client, program, from, to) {
       date: d, scheduled: scheduled.length, done, logged: Boolean(log),
       pain: log?.pain ?? null, difficulty: log?.difficulty ?? null, symptoms: log?.symptoms ?? [], note: log?.note ?? null,
       doneItems: log ? Object.keys(log.done).filter((k) => log.done[k]) : [],
+      counted: log?.counted || {},
     });
   }
   return out;
@@ -256,6 +258,7 @@ async function publicView(token) {
     items: p.items.filter((i) => i.is_active).map((i) => ({
       id: i.id, name: i.name_th, nameEn: i.name_en, instructions: i.instructions, cautions: i.cautions, videoUrl: i.video_url,
       sets: i.sets, reps: i.reps, holdSec: i.hold_sec, perDay: i.per_day, daysOfWeek: i.days_of_week, notes: i.notes,
+      camera: i.camera || null,
     })),
     todayLog,
     week: week.map(({ date, scheduled, done, logged, pain }) => ({ date, scheduled, done, logged, pain })),
@@ -301,7 +304,7 @@ async function saveLog(token, b) {
     await c.query('DELETE FROM home_log_items WHERE log_id = $1', [log.id]);
     for (const it of b.items || []) {
       if (!validItems.has(it.itemId)) continue;
-      await c.query('INSERT INTO home_log_items (log_id, item_id, done) VALUES ($1,$2,$3)', [log.id, it.itemId, Boolean(it.done)]);
+      await c.query('INSERT INTO home_log_items (log_id, item_id, done, reps_counted) VALUES ($1,$2,$3,$4)', [log.id, it.itemId, Boolean(it.done), it.repsCounted ?? null]);
     }
 
     // แจ้งเตือน: ไม่ลบการแจ้งเตือนเดิม (แก้บันทึกภายหลังไม่ทำให้สัญญาณอันตรายหายไป) — ข้ามเฉพาะชนิดที่ยังรอรับทราบอยู่แล้ว
@@ -352,7 +355,11 @@ async function programDetail(id, { days = 28 } = {}) {
   const itemStats = p.items.filter((i) => i.is_active).map((i) => {
     const sched = series.filter((d) => i.days_of_week.includes(isoDow(d.date)));
     const done = sched.filter((d) => d.doneItems.includes(i.id)).length;
-    return { id: i.id, name: i.name_th, scheduled: sched.length, done, pct: sched.length ? Math.round((done / sched.length) * 100) : null };
+    const cam = series.filter((d) => d.counted[i.id] != null);
+    return {
+      id: i.id, name: i.name_th, scheduled: sched.length, done, pct: sched.length ? Math.round((done / sched.length) * 100) : null,
+      cameraDays: cam.length, lastCounted: cam.length ? cam.at(-1).counted[i.id] : null,
+    };
   });
   return {
     ...p, links, alerts, series, itemStats, checkins: await checkins(db, id),

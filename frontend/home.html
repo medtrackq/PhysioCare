@@ -82,6 +82,8 @@
     .groc { display: grid; gap: 6px; }
     .groc button { min-height: 44px; text-align: left; padding: 0 14px; }
     .line-card { background: #f0fdf4; border-color: #86efac; }
+    .cam-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 48px; border-radius: 12px; border: 2px solid var(--brand); background: #fff; color: var(--brand); font: inherit; font-weight: 700; cursor: pointer; }
+    .cam-count { color: var(--brand); font-weight: 600; }
     .line-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; border: 0; border-radius: 12px; background: #06c755; color: #fff; font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; }
   </style>
 </head>
@@ -111,7 +113,7 @@
   }
 
   let data;
-  const st = { date: null, done: {}, pain: null, difficulty: null, symptoms: new Set(), note: '' };
+  const st = { date: null, done: {}, counted: {}, pain: null, difficulty: null, symptoms: new Set(), note: '' };
   const ck = { psfs: {}, groc: null, open: false, saved: false };
   const GROC = [[3, 'ดีขึ้นมาก'], [2, 'ดีขึ้น'], [1, 'ดีขึ้นเล็กน้อย'], [0, 'เท่าเดิม'], [-1, 'แย่ลงเล็กน้อย'], [-2, 'แย่ลง'], [-3, 'แย่ลงมาก']];
 
@@ -165,9 +167,11 @@
     st.date = date;
     const log = date === data.today ? data.todayLog : null;
     st.done = {};
+    st.counted = {};
     st.pain = null; st.difficulty = null; st.symptoms = new Set(); st.note = '';
     if (log && log.logged) {
       for (const id of log.doneItems || []) st.done[id] = true;
+      Object.assign(st.counted, log.counted || {});
       st.pain = log.pain; st.difficulty = log.difficulty; st.symptoms = new Set(log.symptoms || []); st.note = log.note || '';
     }
   }
@@ -213,6 +217,8 @@
           ${i.notes ? `<div><b>เพิ่มเติม:</b> ${esc(i.notes)}</div>` : ''}
           ${i.cautions ? `<div class="caution">⚠ ${esc(i.cautions)}</div>` : ''}
           ${i.videoUrl ? `<a class="video" href="${esc(i.videoUrl)}" target="_blank" rel="noopener noreferrer">▶ ดูวิดีโอท่านี้</a>` : ''}
+          ${i.camera ? `<button type="button" class="cam-btn" data-cam="${i.id}">📷 ให้กล้องช่วยนับ</button>` : ''}
+          ${st.counted[i.id] != null ? `<div class="cam-count">กล้องนับได้ ${st.counted[i.id]} ครั้ง</div>` : ''}
           <button type="button" class="done-toggle" data-item="${i.id}" aria-pressed="${Boolean(st.done[i.id])}">${st.done[i.id] ? '✓ ทำแล้ว' : 'กดเมื่อทำเสร็จ'}</button>
         </section>`).join('')}
       ${rest.length ? `<section class="card"><div class="rest">วันนี้พักท่า: ${rest.map((i) => esc(i.name)).join(', ')}</div></section>` : ''}
@@ -271,6 +277,7 @@
     if (t.dataset.groc) { ck.groc = Number(t.dataset.groc); app.querySelectorAll('[data-groc]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.groc) === ck.groc))); return; }
     if ('ckSave' in t.dataset) { saveCheckin(t); return; }
     if ('line' in t.dataset) { linkLine(t); return; }
+    if (t.dataset.cam) { openCamera(t.dataset.cam); return; }
     if (t.dataset.item) { st.done[t.dataset.item] = !st.done[t.dataset.item]; t.setAttribute('aria-pressed', String(st.done[t.dataset.item])); t.textContent = st.done[t.dataset.item] ? '✓ ทำแล้ว' : 'กดเมื่อทำเสร็จ'; return; }
     if (t.dataset.pain) { st.pain = Number(t.dataset.pain); app.querySelectorAll('[data-pain]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.pain) === st.pain))); return; }
     if (t.dataset.diff) { st.difficulty = t.dataset.diff; app.querySelectorAll('[data-diff]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.diff === st.difficulty))); }
@@ -294,6 +301,27 @@
       render();
     } catch (ex) {
       err.textContent = ex.message; err.hidden = false; b.disabled = false; b.textContent = 'ส่งผลประเมิน';
+    }
+  }
+
+  async function openCamera(itemId) {
+    const it = data.items.find((x) => x.id === itemId);
+    if (!it?.camera) return;
+    const scroll = window.scrollY;
+    try {
+      const { openCoach } = await import('/js/pose/camera-coach.js');
+      openCoach({
+        name: it.name, camera: it.camera, sets: it.sets, reps: it.reps, holdSec: it.holdSec || 0,
+        onFinish(counted, completed) {
+          if (counted > 0) st.counted[itemId] = (st.counted[itemId] || 0) + counted;
+          if (completed) st.done[itemId] = true;
+          st.note = document.getElementById('note')?.value ?? st.note;
+          render();
+          window.scrollTo(0, scroll);
+        },
+      });
+    } catch {
+      alert('เปิดตัวนับด้วยกล้องไม่ได้ในเครื่องนี้');
     }
   }
 
@@ -321,7 +349,7 @@
   document.getElementById('save').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const dow = isoDow(st.date);
-    const items = data.items.filter((i) => i.daysOfWeek.includes(dow)).map((i) => ({ itemId: i.id, done: Boolean(st.done[i.id]) }));
+    const items = data.items.filter((i) => i.daysOfWeek.includes(dow)).map((i) => ({ itemId: i.id, done: Boolean(st.done[i.id]), ...(st.counted[i.id] != null ? { repsCounted: Math.min(1000, st.counted[i.id]) } : {}) }));
     btn.disabled = true;
     btn.textContent = 'กำลังบันทึก…';
     try {
@@ -329,7 +357,7 @@
         date: st.date, items, pain: st.pain, difficulty: st.difficulty, symptoms: [...st.symptoms], note: document.getElementById('note').value,
       });
       data.week = r.week; data.weekAdherence = r.weekAdherence;
-      if (st.date === data.today) data.todayLog = { logged: true, doneItems: items.filter((i) => i.done).map((i) => i.itemId), pain: st.pain, difficulty: st.difficulty, symptoms: [...st.symptoms], note: document.getElementById('note').value };
+      if (st.date === data.today) data.todayLog = { logged: true, counted: { ...st.counted }, doneItems: items.filter((i) => i.done).map((i) => i.itemId), pain: st.pain, difficulty: st.difficulty, symptoms: [...st.symptoms], note: document.getElementById('note').value };
       st.note = document.getElementById('note').value;
       render();
       const box = document.getElementById('result');

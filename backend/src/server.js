@@ -18,6 +18,7 @@ async function main() {
     server.close();
     outbox.stopWorker();
     notify.stopWorker();
+    require('./services/tele.service').closeAll();
     await sse.stopListener();
     await pool.end();
     process.exit(0);

@@ -43,6 +43,11 @@ services:
       LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
       APP_BASE_URL: ${APP_BASE_URL:-}
       NOTIFY_WORKER: ${NOTIFY_WORKER:-true}
+      # วิดีโอคอล: TURN server (ไม่บังคับ แต่แนะนำ) — ดู docs/DEPLOYMENT.md
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
     volumes:
       - uploads:/data/uploads
     expose:

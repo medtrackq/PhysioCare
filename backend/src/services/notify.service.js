@@ -170,7 +170,7 @@ function earlierOutOfQuiet(date, quiet) {
 // ------------------------------------------------------------------ เติมคิว
 async function scheduleDue(now = new Date()) {
   const s = await settings();
-  if (!s.enabled) return { appointments: 0, home: 0 };
+  if (!s.enabled) return { appointments: 0, home: 0, tele: 0 };
   let appointments = 0;
   for (const h of s.appointmentHours) {
     const { rows } = await db.query(
@@ -207,7 +207,9 @@ async function scheduleDue(now = new Date()) {
       home += rowCount;
     }
   }
-  return { appointments, home };
+  // เตือนวิดีโอคอลพร้อมลิงก์ (ไม่เลื่อนตามช่วงห้ามส่ง: นัดวิดีโอคอลเป็นเวลาที่ผู้ป่วยเลือกเอง)
+  const tele = await require('./tele.service').scheduleReminders(now);
+  return { appointments, home, tele };
 }
 
 // ------------------------------------------------------------------ ลิงก์โปรแกรมสำหรับแนบในข้อความ
@@ -267,6 +269,7 @@ async function buildMessage(job, s) {
     const url = await lineLinkUrl(job.ref_id);
     return `🏠 คุณ${p.first_name} อย่าลืมทำกายภาพวันนี้ ${p.n} ท่า\n${url ? `กดเพื่อดูท่าและบันทึก:\n${url}` : 'เปิดลิงก์โปรแกรมที่ได้รับจากคลินิกเพื่อดูท่าและบันทึก'}`;
   }
+  if (job.kind === 'tele_reminder') return require('./tele.service').lineMessage(job, s);
   return null;
 }
 
@@ -328,5 +331,5 @@ const stopWorker = () => { clearInterval(timer); timer = null; };
 
 module.exports = {
   settings, status, createLinkCode, contact, unlink, handleEvents, scheduleDue, deliverDue, sendTest, buildMessage,
-  startWorker, stopWorker, inQuiet, earlierOutOfQuiet, deepLink,
+  startWorker, stopWorker, inQuiet, earlierOutOfQuiet, deepLink, encToken, decToken,
 };

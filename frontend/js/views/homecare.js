@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { JOINTS } from '../pose/counter.js';
 import { $, esc, pageHeader, btn, input, card, empty, toast, showError, fmtDate, formModal } from '../ui.js';
 import {
   REGION_TH, ALERT_TH, DIFF_TH, DOW_TH, GROC_TH, doseText, pctBadge, openProgramEditor, openLinks,
@@ -55,7 +56,7 @@ async function renderDetail(root, id, session) {
     ${pageHeader(`โปรแกรมที่บ้าน · ${d.patient_name}`, `HN ${esc(d.hn)} · ${esc(d.therapist_name)} · ${fmtDate(d.start_date)} – ${fmtDate(d.end_date)} · ${d.status === 'active' ? 'ใช้งานอยู่' : 'สิ้นสุดแล้ว'}`,
       `<a href="#/homecare" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 bg-white">← รายการ</a>
        <a href="#/progress/${d.patient_id}" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 bg-white">📈 ความก้าวหน้า</a>
-       ${canWrite && d.status === 'active' ? `${btn('ลิงก์ & QR', 'id="hc-links"', 'ghost')}${btn('แก้ไขโปรแกรม', 'id="hc-edit"', 'ghost')}${btn('สิ้นสุดโปรแกรม', 'id="hc-end"', 'ghost')}` : ''}`)}
+       ${canWrite && d.status === 'active' ? `${btn('📹 นัดวิดีโอคอล', 'id="hc-tele"', 'ghost')}${btn('ลิงก์ & QR', 'id="hc-links"', 'ghost')}${btn('แก้ไขโปรแกรม', 'id="hc-edit"', 'ghost')}${btn('สิ้นสุดโปรแกรม', 'id="hc-end"', 'ghost')}` : ''}`)}
     ${open.length ? `<div class="mb-4 rounded-xl bg-rose-50 ring-1 ring-rose-200 p-4 space-y-2">
       <div class="font-semibold text-rose-800">แจ้งเตือนที่ยังไม่รับทราบ (${open.length})</div>
       ${open.map((a) => `<div class="flex flex-wrap items-center justify-between gap-2 text-sm"><div>
@@ -85,7 +86,8 @@ async function renderDetail(root, id, session) {
           ${d.items.filter((i) => i.is_active).map((i) => {
     const s = d.itemStats.find((x) => x.id === i.id);
     return `<div class="flex justify-between gap-2"><div><div class="font-medium">${esc(i.name_th)}</div>
-              <div class="text-xs text-slate-500">${esc(doseText(i))} · ${i.days_of_week.length === 7 ? 'ทุกวัน' : i.days_of_week.map((x) => DOW_TH[x - 1]).join(' ')}</div></div>${pctBadge(s?.pct)}</div>`;
+              <div class="text-xs text-slate-500">${esc(doseText(i))} · ${i.days_of_week.length === 7 ? 'ทุกวัน' : i.days_of_week.map((x) => DOW_TH[x - 1]).join(' ')}</div>
+              ${s?.cameraDays ? `<div class="text-[11px] text-sky-700" title="จำนวนที่กล้องในมือถือผู้ป่วยนับได้ เป็นข้อมูลช่วย ไม่ใช่ค่าวัดทางคลินิก">📷 กล้องนับ ${s.cameraDays} วัน · ล่าสุด ${s.lastCounted} ครั้ง</div>` : ''}</div>${pctBadge(s?.pct)}</div>`;
   }).join('')}
           ${d.notes ? `<div class="text-xs text-slate-600 border-t border-slate-100 pt-2">คำแนะนำ: ${esc(d.notes)}</div>` : ''}</div></div>`)}
         ${card(`<div class="p-4 text-sm"><div class="font-semibold mb-1">ลิงก์</div>${d.links.filter((l) => l.active).map((l) => `<div>${esc(l.label)} · ${l.last_used_at ? `เปิดล่าสุด ${fmtDate(l.last_used_at)}` : '<span class="text-amber-700">ยังไม่เคยเปิด</span>'}</div>`).join('') || '<div class="text-amber-700">ยังไม่มีลิงก์ที่ใช้ได้ — กด "ลิงก์ & QR"</div>'}
@@ -111,6 +113,10 @@ async function renderDetail(root, id, session) {
   const reload = () => renderDetail(root, id, session);
   if ($('#hc-suggest')) renderSuggestions($('#hc-suggest'), d, canWrite, reload);
   $('#hc-links')?.addEventListener('click', () => openLinks(id, reload));
+  $('#hc-tele')?.addEventListener('click', async () => {
+    const { openTeleNew } = await import('./tele.js');
+    openTeleNew({ patient: { id: d.patient_id, name: d.patient_name } });
+  });
   $('#hc-edit')?.addEventListener('click', () => openProgramEditor({ patient: { id: d.patient_id, name: d.patient_name }, program: d, onSaved: reload }));
   $('#hc-end')?.addEventListener('click', async () => {
     if (!confirm('สิ้นสุดโปรแกรมนี้? ลิงก์ทั้งหมดจะใช้ไม่ได้ทันที (ข้อมูลที่บันทึกแล้วยังอยู่)')) return;
@@ -189,7 +195,8 @@ async function renderLibrary(root, session) {
     $('#ex-list').innerHTML = card(`<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-xs text-slate-500"><tr>
       <th class="p-3">ท่า</th><th>ส่วน</th><th>ค่าเริ่มต้น</th><th>วิดีโอ</th><th>สถานะ</th><th></th></tr></thead><tbody>
       ${list.map((e) => `<tr class="border-t border-slate-100 align-top"><td class="p-3"><div class="font-medium">${esc(e.name_th)}</div><div class="text-xs text-slate-500">${esc(e.name_en || '')} · ${esc(e.code)}</div>
-        <div class="text-xs mt-1 max-w-[60ch]">${esc(e.instructions)}</div></td>
+        <div class="text-xs mt-1 max-w-[60ch]">${esc(e.instructions)}</div>
+        ${e.camera ? `<div class="text-[11px] mt-1 inline-block rounded bg-sky-50 text-sky-700 px-1.5">📷 นับด้วยกล้อง: ${esc(JOINTS[e.camera.joint]?.label || e.camera.joint)} ${e.camera.rest}° → ${e.camera.target}°</div>` : ''}</td>
         <td>${esc(REGION_TH[e.body_region])}</td><td class="whitespace-nowrap">${esc(doseText(e))}</td>
         <td>${e.video_url ? `<a href="${esc(e.video_url)}" target="_blank" rel="noopener" class="text-brand-700">เปิด</a>` : '<span class="text-slate-400">–</span>'}</td>
         <td>${e.is_active ? 'ใช้งาน' : '<span class="text-slate-400">ปิด</span>'}</td>
@@ -200,8 +207,11 @@ async function renderLibrary(root, session) {
   await load();
 }
 
+// ค่าเริ่มต้นเมื่อเลือกข้อต่อ (มุมท่าพัก → มุมเป้าหมาย, วัดจากกล้องด้านข้าง)
+const CAMERA_DEFAULTS = { knee: [110, 155], hip: [145, 165], hip_leg: [165, 145], shoulder: [60, 120], elbow: [160, 60] };
+
 function openExercise(e, done) {
-  formModal(e ? `แก้ไขท่า · ${e.name_th}` : 'เพิ่มท่าออกกำลังกาย', [
+  const m0 = formModal(e ? `แก้ไขท่า · ${e.name_th}` : 'เพิ่มท่าออกกำลังกาย', [
     { name: 'nameTh', label: 'ชื่อท่า (ไทย)', required: true, value: e?.name_th },
     { name: 'nameEn', label: 'ชื่อท่า (อังกฤษ)', value: e?.name_en },
     { name: 'code', label: 'รหัส', required: true, value: e?.code, hint: 'A-Z 0-9 _ เช่น HAMSTRING_STRETCH', attrs: e ? 'readonly' : '' },
@@ -213,9 +223,21 @@ function openExercise(e, done) {
     { name: 'defaultHoldSec', label: 'ค้าง (วินาที)', type: 'number', value: e?.default_hold_sec, attrs: 'min="1" max="3600"' },
     { name: 'defaultPerDay', label: 'รอบต่อวัน', type: 'number', value: e?.default_per_day ?? 1, attrs: 'min="1" max="6"' },
     { name: 'videoUrl', label: 'ลิงก์วิดีโอ (https)', full: true, value: e?.video_url, hint: 'เช่น วิดีโอที่คลินิกถ่ายเองและอัปโหลดไว้ (YouTube แบบไม่เป็นสาธารณะ / Google Drive)' },
+    {
+      name: 'cameraJoint', label: 'นับด้วยกล้อง: ข้อต่อที่วัด', type: 'select', value: e?.camera?.joint || '',
+      options: [{ value: '', label: 'ไม่ใช้กล้องกับท่านี้' }, ...Object.entries(JOINTS).map(([value, j]) => ({ value, label: j.label }))],
+      hint: 'ใช้กับท่าที่มุมข้อต่อเปลี่ยนชัดเมื่อมองจากด้านข้าง เช่น ลุกนั่ง ยกสะโพก ยกขา',
+    },
+    { name: 'cameraView', label: 'มุมกล้อง', type: 'select', value: e?.camera?.view || 'side', options: [{ value: 'side', label: 'ด้านข้าง (แนะนำ)' }, { value: 'front', label: 'ด้านหน้า' }] },
+    { name: 'cameraRest', label: 'มุมท่าตั้งต้น (องศา)', type: 'number', value: e?.camera?.rest, attrs: 'min="0" max="180"', hint: '180 = เหยียดตรง' },
+    { name: 'cameraTarget', label: 'มุมที่ต้องทำให้ถึง (องศา)', type: 'number', value: e?.camera?.target, attrs: 'min="0" max="180"', hint: 'ต่างจากท่าตั้งต้นอย่างน้อย 15°' },
     ...(e ? [{ name: 'isActive', label: 'ใช้งาน (เอาออกจากคลังโดยไม่ลบ)', type: 'checkbox', value: e.is_active, full: true }] : []),
   ], async (v, m) => {
-    const body = { ...v };
+    const { cameraJoint, cameraView, cameraRest, cameraTarget, ...body } = v;
+    if (cameraJoint) {
+      if (cameraRest == null || cameraTarget == null) throw new Error('ระบุมุมท่าตั้งต้นและมุมเป้าหมายสำหรับการนับด้วยกล้อง');
+      body.camera = { joint: cameraJoint, rest: Number(cameraRest), target: Number(cameraTarget), view: cameraView || 'side' };
+    } else body.camera = null;
     for (const k of ['defaultSets', 'defaultReps', 'defaultHoldSec', 'defaultPerDay']) body[k] = v[k] == null ? null : Number(v[k]);
     if (body.defaultSets == null) delete body.defaultSets;
     if (body.defaultPerDay == null) delete body.defaultPerDay;
@@ -225,4 +247,10 @@ function openExercise(e, done) {
     m.close();
     done();
   }, { wide: true, submitLabel: e ? 'บันทึก' : 'เพิ่มท่า' });
+  const f = $('form', m0.el);
+  f.elements.cameraJoint.addEventListener('change', (ev) => {
+    const d = CAMERA_DEFAULTS[ev.target.value];
+    if (!d) return;
+    [f.elements.cameraRest.value, f.elements.cameraTarget.value] = d;
+  });
 }
