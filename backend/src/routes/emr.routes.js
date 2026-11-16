@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { z } = require('zod');
 const { authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
+const access = require('../services/access.service');
 const emr = require('../services/emr.service');
 const { audit } = require('../services/audit.service');
 
@@ -51,7 +52,7 @@ const assessmentBody = z.object({
   newPrecautions: z.array(z.object({ code: z.string(), detail: z.string().optional() })).optional(),
 });
 
-router.get('/appointments/:id', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.get('/appointments/:id', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), access.guard('appointment'), async (req, res) => {
   const data = await emr.getAppointmentAssessments(req.valid.params.id);
   await audit(req, 'emr.read', 'appointment', req.valid.params.id);
   res.json(data);
@@ -60,13 +61,13 @@ router.get('/appointments/:id', authorize('emr:read'), validate({ params: z.obje
 router.put('/appointments/:id/:phase', authorize('emr:write'), validate({
   params: z.object({ id: uuid, phase: z.enum(['pre', 'post']) }),
   body: assessmentBody,
-}), async (req, res) => {
+}), access.guard('appointment', 'id', { action: 'write' }), async (req, res) => {
   const id = await emr.upsertAssessment(req.user, req.valid.params.id, req.valid.params.phase, req.valid.body);
   await audit(req, `emr.save_${req.valid.params.phase}`, 'assessment', id);
   res.json(await emr.getAppointmentAssessments(req.valid.params.id));
 });
 
-router.post('/assessments/:id/sign', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.post('/assessments/:id/sign', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), access.guard('assessment', 'id', { action: 'write' }), async (req, res) => {
   const a = await emr.signAssessment(req.user, req.valid.params.id);
   await audit(req, 'emr.sign', 'assessment', a.id);
   res.json(a);
@@ -74,13 +75,13 @@ router.post('/assessments/:id/sign', authorize('emr:write'), validate({ params: 
 
 router.post('/assessments/:id/addenda', authorize('emr:write'), validate({
   params: z.object({ id: uuid }), body: z.object({ content: z.string().min(1).max(5000) }),
-}), async (req, res) => {
+}), access.guard('assessment', 'id', { action: 'write' }), async (req, res) => {
   const a = await emr.addAddendum(req.user, req.valid.params.id, req.valid.body.content);
   await audit(req, 'emr.addendum', 'assessment', req.valid.params.id);
   res.status(201).json(a);
 });
 
-router.get('/patients/:id/progress', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.get('/patients/:id/progress', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), access.guard('patient'), async (req, res) => {
   const data = await emr.patientProgress(req.valid.params.id);
   await audit(req, 'emr.progress_read', 'patient', req.valid.params.id);
   res.json(data);

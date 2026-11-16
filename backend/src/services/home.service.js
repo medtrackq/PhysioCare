@@ -401,9 +401,12 @@ async function patientSummary(patientId) {
   };
 }
 
-async function monitor({ therapistId = null } = {}) {
+async function monitor({ therapistId = null, user = null } = {}) {
+  // นักกายภาพเห็นเฉพาะผู้ป่วยที่ตนดูแล/มีนัดด้วย (หัวหน้า/super user เห็นทุกคน)
+  const f = user ? await require('./access.service').patientFilter(user, 'hp.patient_id', 2) : { sql: 'true', params: [] };
   const { rows } = await db.query(
-    `SELECT hp.id FROM home_programs hp WHERE hp.status = 'active' AND ($1::uuid IS NULL OR hp.therapist_id = $1) ORDER BY hp.created_at`, [therapistId]);
+    `SELECT hp.id FROM home_programs hp WHERE hp.status = 'active' AND ($1::uuid IS NULL OR hp.therapist_id = $1) AND ${f.sql} ORDER BY hp.created_at`,
+    [therapistId, ...f.params]);
   const today = bkkDate();
   const list = [];
   for (const { id } of rows) {

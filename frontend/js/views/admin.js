@@ -1,8 +1,8 @@
 import { api } from '../api.js';
+import { ROLE_TH } from './access-ui.js';
 import { renderNotifyAdmin } from './notify-ui.js';
 import { $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDateTime, bkkToday, empty } from '../ui.js';
 
-const ROLE_TH = { admin: 'ผู้ดูแลระบบ', therapist: 'นักกายภาพ', staff: 'เจ้าหน้าที่', patient: 'ผู้ป่วย' };
 
 export async function render(root, ctx) {
   return ctx.route === 'reports' ? renderReports(root) : renderAdmin(root, ctx);
@@ -74,7 +74,8 @@ async function renderAdmin(root, { session }) {
         <label class="block">ชื่อที่แสดง<input name="displayName" required class="${input}"></label>
         <label class="block">อีเมล<input name="email" type="email" required class="${input}"></label>
         <label class="block">รหัสผ่าน (≥8 ตัว มีตัวใหญ่และตัวเลข)<input name="password" type="password" required minlength="8" class="${input}"></label>
-        <label class="block">บทบาท<select name="role" class="${input}">${Object.entries(ROLE_TH).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+        <label class="block">บทบาท<select name="role" class="${input}">${Object.entries(ROLE_TH).filter(([k]) => k !== 'superuser' || session.user.role === 'superuser' || !users.some((u) => u.role === 'superuser' && u.is_active)).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+          <span class="block text-[11px] text-slate-500 mt-0.5">หัวหน้านักกายภาพ: เห็นผู้ป่วยทุกคนและมอบหมายผู้ดูแล · Super user: เห็นทุกอย่างรวมเวชระเบียน (ทุกการเปิดดูถูกบันทึก) ใช้เพื่อทดสอบ/support</span></label>
         <label class="block" data-for="staff">ผูกกับบุคลากร<select name="staffId" class="${input}"><option value="">–</option>${staff.map((s) => `<option value="${s.id}">${esc(s.employee_code)} ${esc(s.first_name)}</option>`).join('')}</select></label>
         <label class="block" data-for="patient">ผูกกับผู้ป่วย<select name="patientId" class="${input}"><option value="">–</option>${patients.map((p) => `<option value="${p.id}">${esc(p.hn)} ${esc(p.first_name)}</option>`).join('')}</select></label>
         ${btn('สร้างบัญชี', 'type="submit"')}

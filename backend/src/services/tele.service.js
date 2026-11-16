@@ -95,13 +95,17 @@ async function create(user, b) {
   return { ...(await get(t.id)), url: urlFor(token) };
 }
 
-async function list({ from, to, therapistId, patientId, status } = {}) {
+async function list({ from, to, therapistId, patientId, status, user = null } = {}) {
+  // นักกายภาพเห็นนัดของตนเอง + ผู้ป่วยที่ตนดูแล/มีนัดด้วย
+  const f = user ? await require('./access.service').patientFilter(user, 't.patient_id', 6) : { sql: 'true', params: [] };
+  const mineOr = user?.staffId && f.sql !== 'true' ? `(t.therapist_id = $${6 + f.params.length} OR ${f.sql})` : f.sql;
   const { rows } = await db.query(
     `${SELECT}
       WHERE ($1::timestamptz IS NULL OR t.scheduled_at >= $1) AND ($2::timestamptz IS NULL OR t.scheduled_at < $2)
         AND ($3::uuid IS NULL OR t.therapist_id = $3) AND ($4::uuid IS NULL OR t.patient_id = $4)
-        AND ($5::text IS NULL OR t.status = $5)
-      ORDER BY t.scheduled_at LIMIT 300`, [from || null, to || null, therapistId || null, patientId || null, status || null]);
+        AND ($5::text IS NULL OR t.status = $5) AND ${mineOr}
+      ORDER BY t.scheduled_at LIMIT 300`,
+    [from || null, to || null, therapistId || null, patientId || null, status || null, ...f.params, ...(mineOr !== f.sql ? [user.staffId] : [])]);
   return rows.map(shape);
 }
 

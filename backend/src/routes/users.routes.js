@@ -4,10 +4,28 @@ const { z } = require('zod');
 const db = require('../db');
 const { authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
-const { badRequest, notFound } = require('../errors');
+const { badRequest, notFound, forbidden } = require('../errors');
 const { audit } = require('../services/audit.service');
 
 router.use(authorize('users:manage'));
+
+/**
+ * Super user เห็นข้อมูลผู้ป่วยทั้งหมด: กันผู้ดูแลระบบยกระดับตัวเอง
+ *   สร้าง/เปลี่ยนเป็น super user ได้เฉพาะ super user (ยกเว้นยังไม่มี super user เลย — ตั้งคนแรก)
+ *   แก้ไขบัญชี super user (รหัสผ่าน, ปิดบัญชี, เปลี่ยนบทบาท) ได้เฉพาะ super user
+ *   ห้ามเปลี่ยนบทบาทของตัวเอง
+ */
+async function guardSuperuser(req, { targetRole, targetUserId }) {
+  const actorIsSuper = req.user.role === 'superuser';
+  if (targetUserId) {
+    const { rows: [t] } = await db.query('SELECT r.code FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1', [targetUserId]);
+    if (t?.code === 'superuser' && !actorIsSuper) throw forbidden('บัญชี Super user แก้ไขได้เฉพาะ Super user');
+  }
+  if (targetRole === 'superuser' && !actorIsSuper) {
+    const { rows: [n] } = await db.query("SELECT count(*)::int AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'superuser' AND u.is_active");
+    if (n.n > 0) throw forbidden('การตั้ง Super user เพิ่ม ต้องทำโดย Super user');
+  }
+}
 
 const strongPassword = z.string().min(8).regex(/[A-Z]/, 'ต้องมีตัวพิมพ์ใหญ่').regex(/[0-9]/, 'ต้องมีตัวเลข');
 
@@ -29,14 +47,15 @@ const userBody = z.object({
   email: z.string().email(),
   password: strongPassword,
   displayName: z.string().min(1),
-  role: z.enum(['admin', 'therapist', 'staff', 'patient']),
+  role: z.enum(['admin', 'therapist', 'staff', 'patient', 'head_therapist', 'superuser']),
   staffId: z.string().uuid().nullish(),
   patientId: z.string().uuid().nullish(),
 });
 
 router.post('/', validate({ body: userBody }), async (req, res) => {
   const b = req.valid.body;
-  if (['therapist', 'staff'].includes(b.role) && !b.staffId) throw badRequest('บัญชีบุคลากรต้องผูกกับ staffId');
+  if (['therapist', 'staff', 'head_therapist'].includes(b.role) && !b.staffId) throw badRequest('บัญชีบุคลากรต้องผูกกับ staffId');
+  await guardSuperuser(req, { targetRole: b.role });
   if (b.role === 'patient' && !b.patientId) throw badRequest('บัญชีผู้ป่วยต้องผูกกับ patientId');
   const { rows: [u] } = await db.query(
     `INSERT INTO users (email, password_hash, display_name, role_id, staff_id, patient_id)
@@ -51,12 +70,14 @@ router.patch('/:id', validate({
   params: z.object({ id: z.string().uuid() }),
   body: z.object({
     displayName: z.string().min(1).optional(),
-    role: z.enum(['admin', 'therapist', 'staff', 'patient']).optional(),
+    role: z.enum(['admin', 'therapist', 'staff', 'patient', 'head_therapist', 'superuser']).optional(),
     isActive: z.boolean().optional(),
     password: strongPassword.optional(),
   }),
 }), async (req, res) => {
   const b = req.valid.body;
+  if (b.role && req.valid.params.id === req.user.id) throw badRequest('เปลี่ยนบทบาทของตัวเองไม่ได้ — ให้ผู้ดูแลระบบอีกคนเปลี่ยนให้');
+  await guardSuperuser(req, { targetRole: b.role, targetUserId: req.valid.params.id });
   const { rows: [u] } = await db.query(
     `UPDATE users SET
         display_name = COALESCE($2, display_name),

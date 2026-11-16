@@ -1,7 +1,7 @@
 import { api, setToken, hasToken } from './api.js';
 import { $, esc, toast } from './ui.js';
 
-const ROLE_TH = { admin: 'ผู้ดูแลระบบ', therapist: 'นักกายภาพบำบัด', staff: 'เจ้าหน้าที่', patient: 'ผู้ป่วย' };
+import { ROLE_TH, openBreakGlass } from './views/access-ui.js';
 
 // เมนูแสดงตามสิทธิ์ (permission) ไม่ใช่ตาม role ตรง ๆ
 const ROUTES = [
@@ -79,7 +79,21 @@ async function boot() {
   $('#app-view').classList.remove('hidden');
   $('#me-name').textContent = session.user.name;
   $('#me-role').textContent = ROLE_TH[session.user.role] || session.user.role;
+  // Super user: แถบเตือนตลอดเวลา (ทุกการเปิดดูข้อมูลผู้ป่วยถูกบันทึก)
+  if (session.user.role === 'superuser' && !$('#su-banner')) {
+    $('#view').insertAdjacentHTML('beforebegin', '<div id="su-banner" class="bg-rose-600 text-white text-xs text-center px-3 py-1.5 lg:fixed lg:top-0 lg:inset-x-0 lg:z-30">โหมด Super user — เห็นข้อมูลทุกส่วนรวมเวชระเบียน · ทุกการเปิดดูข้อมูลผู้ป่วยถูกบันทึก ใช้เพื่อทดสอบ/support เท่านั้น</div>');
+    document.body.classList.add('lg:pt-7');
+  }
   connectRealtime();
+  // API ตอบว่าไม่ได้เป็นผู้ดูแลผู้ป่วย → เสนอเปิดดูฉุกเฉิน (แสดงครั้งเดียวต่อผู้ป่วยต่อหน้า)
+  let lastNoCare = '';
+  window.addEventListener('pc:no-care', (e) => {
+    const d = e.detail || {};
+    const key = `${d.patientId}|${location.hash}`;
+    if (key === lastNoCare) return;
+    lastNoCare = key;
+    openBreakGlass(d, () => { lastNoCare = ''; route(); });
+  });
   window.addEventListener('hashchange', route);
   route();
 }

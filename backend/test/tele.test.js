@@ -91,7 +91,7 @@ before(async () => {
   const sql = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'db', f), 'utf8');
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
   for (const f of ['001_schema.sql', '002_reference_data.sql', '003_clinical_guidelines.sql', '004_rooms_beds.sql', '005_floor_plan.sql',
-    '006_integration.sql', '007_home_program.sql', '008_notifications.sql', '009_camera_telerehab.sql', 'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql']) {
+    '006_integration.sql', '007_home_program.sql', '008_notifications.sql', '009_camera_telerehab.sql', '010_care_team_access.sql', 'demo/101_demo_data.sql', 'demo/103_demo_rooms_beds.sql', 'demo/106_demo_care_team.sql']) {
     await pool.query(sql(f));
   }
   await setSetting('notify.enabled', true);

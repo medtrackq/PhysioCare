@@ -1,5 +1,6 @@
 import { api, hisLocked } from '../api.js';
 import { renderLineBox } from './notify-ui.js';
+import { renderCareTeam } from './access-ui.js';
 import {
   $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDate, empty, formModal, compact,
 } from '../ui.js';
@@ -10,17 +11,31 @@ const age = (dob) => (dob ? Math.floor((Date.now() - new Date(dob)) / (365.25 * 
 
 export async function render(root, { session }) {
   const canWrite = session.can('patients:write');
+  // นักกายภาพ: เริ่มที่ "ผู้ป่วยของฉัน" (ทีมผู้ดูแล/มีนัดด้วย) · ผู้มอบหมายได้: มีแท็บ "ยังไม่มีผู้ดูแล"
+  const scoped = Boolean(session.user.staffId) && session.can('emr:read') && !session.can('emr:read_all');
+  const scopes = [
+    ...(scoped ? [['mine', 'ผู้ป่วยของฉัน']] : []),
+    ['all', 'ทั้งหมด'],
+    ...(session.can('care_team:assign') ? [['unassigned', 'ยังไม่มีผู้ดูแล']] : []),
+  ];
+  let scope = scopes[0][0];
   root.innerHTML = `
     ${pageHeader('ผู้ป่วย', 'ลงทะเบียน การวินิจฉัย และข้อควรระวัง — ข้อมูลนี้ใช้ในระบบแนะนำนักกายภาพ อุปกรณ์ และตรวจข้อห้ามใช้ตอนจองนัด',
       canWrite ? btn('+ ลงทะเบียนผู้ป่วย', 'id="pt-new"') : '')}
-    <input id="pt-q" class="${input} max-w-md mb-4" placeholder="ค้นหา HN / ชื่อ / นามสกุล / เบอร์โทร">
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+      <input id="pt-q" class="${input} max-w-md" placeholder="ค้นหา HN / ชื่อ / นามสกุล / เบอร์โทร">
+      ${scopes.length > 1 ? `<div class="inline-flex rounded-lg ring-1 ring-inset ring-slate-300 bg-white overflow-hidden text-sm" id="pt-scope">
+        ${scopes.map(([k, l]) => `<button type="button" data-scope="${k}" class="px-3 py-1.5">${l}</button>`).join('')}</div>` : ''}
+    </div>
     <div id="pt-list"></div>`;
 
   const load = async () => {
     const q = $('#pt-q').value.trim();
-    const list = await api.get(`/patients${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+    root.querySelectorAll('[data-scope]').forEach((b) => { b.className = `px-3 py-1.5 ${b.dataset.scope === scope ? 'bg-brand-600 text-white' : ''}`; });
+    const qs = new URLSearchParams({ ...(q ? { q } : {}), ...(scope !== 'all' ? { scope } : {}) }).toString();
+    const list = await api.get(`/patients${qs ? `?${qs}` : ''}`);
     $('#pt-list').innerHTML = list.length ? card(`<div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left text-xs text-slate-500"><tr><th class="p-3">HN</th><th>ชื่อ</th><th>อายุ</th><th>โทร</th><th>การวินิจฉัย</th><th>ข้อควรระวัง</th></tr></thead>
+      <thead class="text-left text-xs text-slate-500"><tr><th class="p-3">HN</th><th>ชื่อ</th><th>อายุ</th><th>โทร</th><th>การวินิจฉัย</th><th>ข้อควรระวัง</th><th>ผู้ดูแลหลัก</th></tr></thead>
       <tbody class="divide-y divide-slate-100">${list.map((p) => `
         <tr data-pt="${p.id}" class="cursor-pointer hover:bg-slate-50">
           <td class="p-3 font-mono">${esc(p.hn)}</td>
@@ -29,13 +44,15 @@ export async function render(root, { session }) {
           <td>${esc(p.phone || '–')}</td>
           <td>${(p.diagnoses || []).map((d) => `<span class="text-xs ${d.primary ? 'font-semibold' : ''}">${esc(d.code)}</span>`).join(', ') || '<span class="text-xs text-amber-600">ยังไม่ระบุ</span>'}</td>
           <td>${(p.precautions || []).map((c) => `<span class="text-[11px] rounded bg-rose-50 text-rose-700 px-1">${esc(c)}</span>`).join(' ')}</td>
+          <td class="text-xs pr-3">${p.primary_therapist ? esc(p.primary_therapist) : '<span class="text-amber-700">ยังไม่มอบหมาย</span>'}${p.in_care ? ' <span class="text-emerald-600" title="คุณดูแลผู้ป่วยรายนี้">●</span>' : ''}</td>
         </tr>`).join('')}</tbody></table></div>`)
-      : empty(q ? 'ไม่พบผู้ป่วยที่ค้นหา' : 'ยังไม่มีผู้ป่วย — กด "ลงทะเบียนผู้ป่วย" เพื่อเริ่ม');
+      : empty(q ? 'ไม่พบผู้ป่วยที่ค้นหา' : scope === 'mine' ? 'ยังไม่มีผู้ป่วยที่คุณดูแล — หัวหน้าหรือเจ้าหน้าที่มอบหมายได้ในหน้าผู้ป่วย หรือดูแท็บ "ทั้งหมด"' : scope === 'unassigned' ? 'ผู้ป่วยทุกคนมีผู้ดูแลหลักแล้ว' : 'ยังไม่มีผู้ป่วย — กด "ลงทะเบียนผู้ป่วย" เพื่อเริ่ม');
     $$('[data-pt]').forEach((tr) => tr.addEventListener('click', () => openPatient(tr.dataset.pt, session, load)));
   };
 
   let t;
   $('#pt-q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
+  $('#pt-scope')?.addEventListener('click', (e) => { const b = e.target.closest('[data-scope]'); if (b) { scope = b.dataset.scope; load(); } });
   $('#pt-new')?.addEventListener('click', () => openPatientForm(null, (id) => { load(); openPatient(id, session, load); }));
   await load();
 }
@@ -88,6 +105,7 @@ async function openPatient(id, session, reload) {
           ${session.can('emr:read') ? `<a href="#/progress/${p.id}" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 hover:bg-slate-50">📈 ความก้าวหน้า</a>` : ''}
           ${session.can('appointments:write') ? '<a href="#/schedule" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 hover:bg-slate-50">🗓️ ไปจองนัด</a>' : ''}
         </div>
+        <div id="pd-care"></div>
         <div id="pd-line"></div>
       </section>
 
@@ -127,6 +145,7 @@ async function openPatient(id, session, reload) {
       </section>
     </div>`, { wide: true });
 
+  renderCareTeam($('#pd-care', m.el), p, session);
   renderLineBox($('#pd-line', m.el), p, canWrite);
   const refresh = () => { m.close(); reload(); openPatient(id, session, reload); };
   $('#pd-edit', m.el)?.addEventListener('click', () => { m.close(); openPatientForm(p, () => { reload(); openPatient(id, session, reload); }); });

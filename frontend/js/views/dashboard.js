@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { $, esc, badge, APPT_STATUS, EQUIPMENT_STATUS, pageHeader, card, fmtTime, fmtDate, bkkToday, bkkISO, empty } from '../ui.js';
 
 export async function render(root, { session }) {
+  const bgCard = () => { const el = root.querySelector('#db-bg'); if (el) import('./access-ui.js').then((m) => m.renderBreakGlassCard(el)).catch(() => {}); };
   const today = bkkToday();
   root.innerHTML = `${pageHeader('ภาพรวมวันนี้', fmtDate(new Date()))}
     <div id="db-kpi" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5"></div>
@@ -10,9 +11,11 @@ export async function render(root, { session }) {
       <div class="space-y-5">
         ${card('<div class="p-4"><div class="font-semibold mb-3">สถานะอุปกรณ์ (live)</div><div id="db-eq"></div></div>')}
         ${card('<div class="p-4"><div class="font-semibold mb-3">แจ้งเตือนอุปกรณ์</div><div id="db-alerts"></div></div>')}
+        ${session.can('emr:read_all') ? '<div id="db-bg"></div>' : ''}
       </div>
     </div>`;
 
+  bgCard();
   const load = async () => {
     const [appts, eq, alerts] = await Promise.all([
       session.can('appointments:read_all') ? api.get(`/appointments?from=${encodeURIComponent(bkkISO(today, '00:00'))}&to=${encodeURIComponent(bkkISO(today, '23:59'))}`) : [],

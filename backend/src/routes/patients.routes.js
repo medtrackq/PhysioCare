@@ -6,6 +6,7 @@ const { authorize, can } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const { notFound, forbidden } = require('../errors');
 const { audit } = require('../services/audit.service');
+const access = require('../services/access.service');
 
 const idParam = z.object({ id: z.string().uuid() });
 
@@ -25,18 +26,29 @@ router.get('/me', async (req, res) => {
   res.json(p);
 });
 
-router.get('/', authorize('patients:read'), validate({ query: z.object({ q: z.string().max(100).optional() }) }), async (req, res) => {
+router.get('/', authorize('patients:read'), validate({
+  query: z.object({ q: z.string().max(100).optional(), scope: z.enum(['all', 'mine', 'unassigned']).optional() }),
+}), async (req, res) => {
   const q = req.valid.query.q ?? null;
+  const scope = req.valid.query.scope || 'all';
+  // mine = ผู้ป่วยที่เข้าถึงข้อมูลการรักษาได้ (ทีมผู้ดูแล / มีนัดด้วย / เปิดดูฉุกเฉิน) · unassigned = ยังไม่มีผู้ดูแลหลัก
+  const f = scope === 'mine' ? await access.patientFilter(req.user, 'p.id', 3) : { sql: 'true', params: [] };
+  const mineF = req.user.staffId && !access.seesAll(req.user) ? await access.patientFilter(req.user, 'p.id', 3 + f.params.length) : null;
   const { rows } = await db.query(
     `SELECT p.id, p.hn, p.title, p.first_name, p.last_name, p.date_of_birth, p.gender, p.phone,
             (SELECT json_agg(json_build_object('code', d.icd10_code, 'name', d.name_th, 'primary', pd.is_primary))
                FROM patient_diagnoses pd JOIN diagnoses d ON d.id = pd.diagnosis_id
               WHERE pd.patient_id = p.id AND pd.status = 'active') AS diagnoses,
-            (SELECT json_agg(pp.precaution_code) FROM patient_precautions pp WHERE pp.patient_id = p.id AND pp.is_active) AS precautions
+            (SELECT json_agg(pp.precaution_code) FROM patient_precautions pp WHERE pp.patient_id = p.id AND pp.is_active) AS precautions,
+            (SELECT s.title || s.first_name || ' ' || s.last_name FROM patient_care_team ct JOIN staff s ON s.id = ct.staff_id
+              WHERE ct.patient_id = p.id AND ct.ended_at IS NULL AND ct.is_primary) AS primary_therapist,
+            ${mineF ? mineF.sql : 'NULL::boolean'} AS in_care
        FROM patients p
-      WHERE $1::text IS NULL OR p.hn ILIKE '%' || $1 || '%' OR p.first_name ILIKE '%' || $1 || '%'
-         OR p.last_name ILIKE '%' || $1 || '%' OR p.phone ILIKE '%' || $1 || '%'
-      ORDER BY p.created_at DESC LIMIT 50`, [q]);
+      WHERE ($1::text IS NULL OR p.hn ILIKE '%' || $1 || '%' OR p.first_name ILIKE '%' || $1 || '%'
+         OR p.last_name ILIKE '%' || $1 || '%' OR p.phone ILIKE '%' || $1 || '%')
+        AND ($2::text <> 'unassigned' OR NOT EXISTS (SELECT 1 FROM patient_care_team ct WHERE ct.patient_id = p.id AND ct.ended_at IS NULL AND ct.is_primary))
+        AND ${f.sql}
+      ORDER BY p.created_at DESC LIMIT ${scope === 'all' ? 50 : 200}`, [q, scope, ...f.params, ...(mineF?.params || [])]);
   res.json(rows);
 });
 
@@ -82,6 +94,8 @@ router.post('/', authorize('patients:write'), validate({ body: patientBody }), a
     `INSERT INTO patients (${keys.map((k) => COLS[k]).join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
     keys.map((k) => toVal(k, b[k])));
   await audit(req, 'patient.create', 'patient', p.id);
+  // นักกายภาพลงทะเบียนผู้ป่วยเอง → เป็นผู้ดูแลหลัก (หัวหน้า/เจ้าหน้าที่มอบหมายต่อในหน้าผู้ป่วย)
+  await access.autoAssign(req.user, p.id);
   res.status(201).json(p);
 });
 

@@ -25,6 +25,8 @@ export async function request(method, url, body, { form } = {}) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && url !== '/auth/login') { setToken(null); location.hash = ''; location.reload(); }
+    // ไม่ได้เป็นผู้ดูแลผู้ป่วยรายนี้ → หน้าจอหลักเสนอ "เปิดดูฉุกเฉิน" (main.js)
+    if (res.status === 403 && data?.error?.code === 'NO_CARE_RELATION') window.dispatchEvent(new CustomEvent('pc:no-care', { detail: data.error.details }));
     throw new ApiError(res.status, data?.error);
   }
   return data;

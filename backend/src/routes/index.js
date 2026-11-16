@@ -34,6 +34,7 @@ router.use('/integration', integration.router);
 router.use('/home', homeRoutes.router);
 router.use('/notify', notifyRoutes.router);
 router.use('/tele', teleRoutes.router);
+router.use('/access', require('./access.routes'));
 router.use('/', require('./scheduling.routes'));
 
 module.exports = router;

@@ -8,6 +8,7 @@ const { z } = require('zod');
 const db = require('../db');
 const { authorize } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
+const access = require('../services/access.service');
 const { rateLimit } = require('../middleware/rateLimit');
 const { audit } = require('../services/audit.service');
 const home = require('../services/home.service');
@@ -100,14 +101,15 @@ router.patch('/exercises/:id', authorize('emr:write'), validate({
 });
 
 router.get('/monitor', authorize('emr:read'), validate({ query: z.object({ mine: z.enum(['true', 'false']).optional() }) }), async (req, res) => {
-  res.json(await home.monitor({ therapistId: req.valid.query.mine === 'true' ? req.user.staffId : null }));
+  res.json(await home.monitor({ therapistId: req.valid.query.mine === 'true' ? req.user.staffId : null, user: req.user }));
 });
 
-router.get('/patients/:id/summary', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.get('/patients/:id/summary', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), access.guard('patient'), async (req, res) => {
   res.json(await home.patientSummary(req.valid.params.id));
 });
 
 router.get('/programs', authorize('emr:read'), validate({ query: z.object({ patientId: uuid }) }), async (req, res) => {
+  await access.assertPatient(req, req.valid.query.patientId);
   const { rows } = await db.query(
     `SELECT hp.id, hp.status, hp.start_date, hp.end_date, hp.created_at, s.title || s.first_name AS therapist_name,
             (SELECT count(*) FROM home_program_items i WHERE i.program_id = hp.id AND i.is_active) AS items
@@ -116,13 +118,14 @@ router.get('/programs', authorize('emr:read'), validate({ query: z.object({ pati
   res.json(rows);
 });
 
-router.get('/programs/:id', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.get('/programs/:id', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), access.guard('program'), async (req, res) => {
   const d = await home.programDetail(req.valid.params.id);
   await audit(req, 'home_program.read', 'home_program', d.id);
   res.json(d);
 });
 
 router.post('/programs', authorize('emr:write'), validate({ body: programBody }), async (req, res) => {
+  await access.assertPatient(req, req.valid.body.patientId, { action: 'write' });
   const p = await home.createProgram(req.user, req.valid.body);
   await audit(req, 'home_program.create', 'home_program', p.id, { items: p.items.length, consent: true });
   res.status(201).json(p);
@@ -131,17 +134,17 @@ router.post('/programs', authorize('emr:write'), validate({ body: programBody })
 router.patch('/programs/:id', authorize('emr:write'), validate({
   params: z.object({ id: uuid }),
   body: programBody.omit({ patientId: true, appointmentId: true, therapistId: true, consent: true, consentNote: true }).partial(),
-}), async (req, res) => {
+}), access.guard('program', 'id', { action: 'write' }), async (req, res) => {
   const p = await home.updateProgram(req.valid.params.id, req.valid.body);
   await audit(req, 'home_program.update', 'home_program', p.id, Object.keys(req.valid.body));
   res.json(p);
 });
 
-router.get('/programs/:id/suggestions', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.get('/programs/:id/suggestions', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), access.guard('program'), async (req, res) => {
   res.json(await home.suggestions(req.valid.params.id));
 });
 
-router.post('/programs/:id/end', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.post('/programs/:id/end', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), access.guard('program', 'id', { action: 'write' }), async (req, res) => {
   await home.endProgram(req.valid.params.id);
   await audit(req, 'home_program.end', 'home_program', req.valid.params.id);
   res.json({ ok: true });
@@ -149,13 +152,13 @@ router.post('/programs/:id/end', authorize('emr:write'), validate({ params: z.ob
 
 router.post('/programs/:id/links', authorize('emr:write'), validate({
   params: z.object({ id: uuid }), body: z.object({ label: z.string().min(1).max(40).optional() }),
-}), async (req, res) => {
+}), access.guard('program', 'id', { action: 'write' }), async (req, res) => {
   const l = await home.createLink(req.valid.params.id, req.valid.body, req.user.id);
   await audit(req, 'home_link.create', 'home_program', req.valid.params.id, { label: l.label });
   res.status(201).json(l); // token แสดงครั้งเดียว
 });
 
-router.post('/links/:id/revoke', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+router.post('/links/:id/revoke', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), access.guard('link', 'id', { action: 'write' }), async (req, res) => {
   await home.revokeLink(req.valid.params.id);
   await audit(req, 'home_link.revoke', 'home_link', req.valid.params.id);
   res.json({ ok: true });
@@ -163,7 +166,7 @@ router.post('/links/:id/revoke', authorize('emr:write'), validate({ params: z.ob
 
 router.post('/alerts/:id/ack', authorize('emr:write'), validate({
   params: z.object({ id: uuid }), body: z.object({ note: z.string().max(500).optional() }),
-}), async (req, res) => {
+}), access.guard('alert', 'id', { action: 'write' }), async (req, res) => {
   await home.acknowledgeAlert(req.valid.params.id, req.user.id, req.valid.body.note);
   res.json({ ok: true });
 });
