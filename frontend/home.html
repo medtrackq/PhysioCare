@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>โปรแกรมกายภาพที่บ้าน</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231474bf'/%3E%3Cpath d='M9 16h14M16 9v14' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* หน้าสำหรับผู้ป่วย/ญาติบนมือถือ: ตัวอักษรใหญ่ ปุ่มใหญ่ กรอกเสร็จในไม่ถึง 30 วินาที */
+    :root {
+      --bg: #f3f6f9; --card: #ffffff; --ink: #142230; --muted: #5a6977; --line: #d9e1e8;
+      --brand: #1474bf; --brand-soft: #e3f0fb; --ok: #15803d; --ok-soft: #e7f6ec;
+      --warn: #a15c00; --warn-soft: #fff4e0; --danger: #b42318; --danger-soft: #fdecea;
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 18px/1.6 "IBM Plex Sans Thai", "Noto Sans Thai", system-ui, sans-serif;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 120px max(16px, env(safe-area-inset-left));
+    }
+    main { max-width: 640px; margin: 0 auto; display: grid; gap: 14px; }
+    h1 { font-size: 1.45rem; margin: 0; line-height: 1.3; }
+    h2 { font-size: 1.15rem; margin: 0 0 8px; }
+    .muted { color: var(--muted); font-size: .92rem; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+    .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; margin-top: 10px; }
+    .day { font-size: .78rem; color: var(--muted); }
+    .dot { width: 38px; height: 38px; margin: 4px auto 0; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .85rem; border: 2px solid var(--line); background: #fff; }
+    .dot.full { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .dot.part { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+    .dot.miss { border-style: dashed; }
+    .dot.today { outline: 3px solid var(--brand); outline-offset: 2px; }
+    .seg { display: grid; grid-auto-flow: column; gap: 8px; }
+    .seg button, .pick button {
+      font: inherit; font-weight: 600; min-height: 52px; border-radius: 12px; border: 2px solid var(--line); background: #fff; color: var(--ink); cursor: pointer;
+    }
+    .seg button[aria-pressed="true"], .pick button[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+    .ex { display: grid; gap: 8px; }
+    .ex-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .ex-name { font-weight: 700; font-size: 1.1rem; line-height: 1.35; }
+    .dose { display: inline-block; background: var(--brand-soft); color: var(--brand); border-radius: 8px; padding: 2px 10px; font-weight: 600; font-size: .95rem; }
+    .caution { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 8px 12px; font-size: .92rem; }
+    .done-toggle {
+      font: inherit; font-weight: 700; width: 100%; min-height: 58px; border-radius: 14px; border: 2px solid var(--ok); background: #fff; color: var(--ok); cursor: pointer;
+    }
+    .done-toggle[aria-pressed="true"] { background: var(--ok); color: #fff; }
+    .rest { color: var(--muted); font-weight: 600; }
+    .pain { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .pain button { min-height: 52px; }
+    .pain-scale { display: flex; justify-content: space-between; font-size: .8rem; color: var(--muted); margin-top: 6px; }
+    .check { display: flex; gap: 12px; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--line); font-size: 1rem; }
+    .check:last-child { border-bottom: 0; }
+    .check input { width: 26px; height: 26px; accent-color: var(--danger); flex: none; }
+    textarea { font: inherit; width: 100%; min-height: 80px; border: 2px solid var(--line); border-radius: 12px; padding: 10px; }
+    a.video { display: inline-flex; align-items: center; gap: 6px; color: var(--brand); font-weight: 600; text-decoration: none; }
+    .save-bar {
+      position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.96); border-top: 1px solid var(--line);
+      padding: 12px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    .save-bar button {
+      display: block; max-width: 640px; margin: 0 auto; width: 100%; font: inherit; font-size: 1.15rem; font-weight: 700; min-height: 60px;
+      border: 0; border-radius: 16px; background: var(--brand); color: #fff; cursor: pointer;
+    }
+    .save-bar button:disabled { opacity: .6; }
+    .result.ok { background: var(--ok-soft); border-color: var(--ok); }
+    .result.stop { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+    .result.stop b { color: var(--danger); }
+    .phone { font-size: 1.4rem; font-weight: 700; user-select: all; }
+    button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+    .center { text-align: center; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main id="app">
+  <div class="card center muted">กำลังโหลดโปรแกรม…</div>
+</main>
+<div class="save-bar" id="save-bar" hidden><button id="save" type="button">บันทึกวันนี้</button></div>
+
+<script>
+(() => {
+  const app = document.getElementById('app');
+  const token = new URLSearchParams(location.hash.slice(1)).get('t') || '';
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  const thDate = (d, opts = { weekday: 'long', day: 'numeric', month: 'long' }) => new Date(`${d}T12:00:00+07:00`).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', ...opts });
+  const isoDow = (d) => { const x = new Date(`${d}T12:00:00Z`).getUTCDay(); return x === 0 ? 7 : x; };
+  const PAIN_COLOR = (n) => (n <= 3 ? '#15803d' : n <= 6 ? '#a15c00' : '#b42318');
+
+  async function api(method, body) {
+    const res = await fetch(`/api/public/home${method === 'PUT' ? '/log' : ''}`, {
+      method, headers: { 'X-Home-Token': token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error?.message || 'เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่');
+    return data;
+  }
+
+  let data;
+  const st = { date: null, done: {}, pain: null, difficulty: null, symptoms: new Set(), note: '' };
+
+  function dose(i) {
+    const parts = [`${i.sets} เซ็ต`];
+    if (i.reps) parts.push(`× ${i.reps} ครั้ง`);
+    if (i.holdSec) parts.push(i.holdSec >= 60 ? `${Math.round(i.holdSec / 60)} นาที` : `ค้าง ${i.holdSec} วินาที`);
+    if (i.perDay > 1) parts.push(`· วันละ ${i.perDay} รอบ`);
+    return parts.join(' ');
+  }
+
+  function loadState(date) {
+    st.date = date;
+    const log = date === data.today ? data.todayLog : null;
+    st.done = {};
+    st.pain = null; st.difficulty = null; st.symptoms = new Set(); st.note = '';
+    if (log && log.logged) {
+      for (const id of log.doneItems || []) st.done[id] = true;
+      st.pain = log.pain; st.difficulty = log.difficulty; st.symptoms = new Set(log.symptoms || []); st.note = log.note || '';
+    }
+  }
+
+  function weekHtml(week, adherence) {
+    return `<div class="week" aria-label="7 วันที่ผ่านมา">${week.map((d) => {
+      const cls = !d.scheduled ? '' : d.done >= d.scheduled ? 'full' : d.done > 0 ? 'part' : 'miss';
+      return `<div class="day">${DOW[new Date(`${d.date}T12:00:00Z`).getUTCDay()]}
+        <div class="dot ${cls} ${d.date === data.today ? 'today' : ''}" title="${esc(thDate(d.date))}">${d.scheduled ? `${d.done}/${d.scheduled}` : 'พัก'}</div></div>`;
+    }).join('')}</div>
+    <div class="muted center" style="margin-top:8px">สัปดาห์นี้ทำแล้ว <b>${adherence ?? 0}%</b> ของโปรแกรม</div>`;
+  }
+
+  function render() {
+    const dow = isoDow(st.date);
+    const today = data.items.filter((i) => i.daysOfWeek.includes(dow));
+    const rest = data.items.filter((i) => !i.daysOfWeek.includes(dow));
+    app.innerHTML = `
+      <header class="card">
+        <div class="muted">โปรแกรมกายภาพที่บ้าน</div>
+        <h1>สวัสดีคุณ${esc(data.patientFirstName)}</h1>
+        <div class="muted">ผู้ดูแล ${esc(data.therapistName)} · ${esc(thDate(data.startDate, { day: 'numeric', month: 'short' }))} – ${esc(thDate(data.endDate, { day: 'numeric', month: 'short' }))}</div>
+        ${weekHtml(data.week, data.weekAdherence)}
+      </header>
+
+      ${data.canLogDates.length > 1 ? `<div class="seg" role="group" aria-label="เลือกวันที่บันทึก">
+        ${data.canLogDates.map((d) => `<button type="button" data-date="${d}" aria-pressed="${d === st.date}">${d === data.today ? 'วันนี้' : 'เมื่อวาน'}</button>`).join('')}
+      </div>` : ''}
+
+      ${data.notes ? `<section class="card"><h2>คำแนะนำจากนักกายภาพ</h2><div>${esc(data.notes)}</div></section>` : ''}
+
+      <section class="card">
+        <h2>ท่าออกกำลังกาย${st.date === data.today ? 'วันนี้' : 'เมื่อวาน'} (${today.length} ท่า)</h2>
+        <div class="muted">ทำแต่ละท่าเสร็จแล้วกดปุ่ม "ทำแล้ว" · ถ้ามีอาการผิดปกติให้หยุดทันที</div>
+      </section>
+      ${today.map((i, n) => `
+        <section class="card ex">
+          <div class="ex-head"><div class="ex-name">${n + 1}. ${esc(i.name)}</div></div>
+          <div><span class="dose">${esc(dose(i))}</span></div>
+          <div>${esc(i.instructions)}</div>
+          ${i.notes ? `<div><b>เพิ่มเติม:</b> ${esc(i.notes)}</div>` : ''}
+          ${i.cautions ? `<div class="caution">⚠ ${esc(i.cautions)}</div>` : ''}
+          ${i.videoUrl ? `<a class="video" href="${esc(i.videoUrl)}" target="_blank" rel="noopener noreferrer">▶ ดูวิดีโอท่านี้</a>` : ''}
+          <button type="button" class="done-toggle" data-item="${i.id}" aria-pressed="${Boolean(st.done[i.id])}">${st.done[i.id] ? '✓ ทำแล้ว' : 'กดเมื่อทำเสร็จ'}</button>
+        </section>`).join('')}
+      ${rest.length ? `<section class="card"><div class="rest">วันนี้พักท่า: ${rest.map((i) => esc(i.name)).join(', ')}</div></section>` : ''}
+
+      <section class="card">
+        <h2>ตอนนี้ปวดระดับไหน</h2>
+        <div class="pick pain" role="group" aria-label="ระดับความปวด 0 ถึง 10">
+          ${Array.from({ length: 11 }, (_, n) => `<button type="button" data-pain="${n}" aria-pressed="${st.pain === n}" style="color:${PAIN_COLOR(n)}">${n}</button>`).join('')}
+        </div>
+        <div class="pain-scale"><span>0 = ไม่ปวด</span><span>10 = ปวดมากที่สุด</span></div>
+      </section>
+
+      <section class="card">
+        <h2>ทำแล้วรู้สึกอย่างไร</h2>
+        <div class="seg pick" role="group" aria-label="ความยาก">
+          ${[['easy', 'ง่าย'], ['ok', 'พอดี'], ['hard', 'ยาก/เหนื่อย']].map(([k, l]) => `<button type="button" data-diff="${k}" aria-pressed="${st.difficulty === k}">${l}</button>`).join('')}
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>มีอาการต่อไปนี้ไหม</h2>
+        <div class="muted">ถ้าไม่มี ข้ามได้เลย</div>
+        ${Object.entries(data.redFlags).map(([k, l]) => `<label class="check"><input type="checkbox" data-sym="${k}" ${st.symptoms.has(k) ? 'checked' : ''}> ${esc(l)}</label>`).join('')}
+      </section>
+
+      <section class="card">
+        <h2>บันทึกถึงนักกายภาพ (ถ้ามี)</h2>
+        <textarea id="note" maxlength="500" placeholder="เช่น ท่าที่ 2 ทำแล้วตึงมาก">${esc(st.note)}</textarea>
+      </section>
+
+      <div id="result"></div>
+      <p class="muted center">ข้อมูลนี้ส่งถึงนักกายภาพของคุณเท่านั้น · ถ้าใช้โทรศัพท์ร่วมกับผู้อื่น อย่าแชร์ลิงก์นี้</p>`;
+    document.getElementById('save-bar').hidden = false;
+    document.getElementById('save').textContent = st.date === data.today ? 'บันทึกวันนี้' : 'บันทึกของเมื่อวาน';
+  }
+
+  function resultHtml(r) {
+    if (r.advice === 'stop') {
+      return `<section class="card result stop" role="alert">
+        <h2>หยุดออกกำลังกายก่อน</h2>
+        <div>อาการที่บันทึกไว้ควรให้นักกายภาพประเมิน ระบบแจ้งนักกายภาพของคุณแล้ว กรุณาโทรปรึกษาคลินิก</div>
+        ${data.contactPhone ? `<div class="phone" style="margin:8px 0">${esc(data.contactPhone)}</div>` : ''}
+        <div><b>ถ้าเจ็บแน่นหน้าอก หายใจไม่ออก แขนขาอ่อนแรงครึ่งซีก หรือพูดไม่ชัด โทร 1669 ทันที</b></div>
+      </section>`;
+    }
+    return `<section class="card result ok" role="status"><h2>บันทึกแล้ว ขอบคุณครับ/ค่ะ</h2>
+      <div>สัปดาห์นี้ทำแล้ว <b>${r.weekAdherence ?? 0}%</b> ของโปรแกรม ทำต่อเนื่องจะช่วยให้ฟื้นตัวได้ดีขึ้น</div></section>`;
+  }
+
+  app.addEventListener('click', (e) => {
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.dataset.date) { loadState(t.dataset.date); render(); return; }
+    if (t.dataset.item) { st.done[t.dataset.item] = !st.done[t.dataset.item]; t.setAttribute('aria-pressed', String(st.done[t.dataset.item])); t.textContent = st.done[t.dataset.item] ? '✓ ทำแล้ว' : 'กดเมื่อทำเสร็จ'; return; }
+    if (t.dataset.pain) { st.pain = Number(t.dataset.pain); app.querySelectorAll('[data-pain]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.pain) === st.pain))); return; }
+    if (t.dataset.diff) { st.difficulty = t.dataset.diff; app.querySelectorAll('[data-diff]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.diff === st.difficulty))); }
+  });
+  app.addEventListener('change', (e) => {
+    const s = e.target.closest('[data-sym]');
+    if (s) { if (s.checked) st.symptoms.add(s.dataset.sym); else st.symptoms.delete(s.dataset.sym); }
+  });
+
+  document.getElementById('save').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const dow = isoDow(st.date);
+    const items = data.items.filter((i) => i.daysOfWeek.includes(dow)).map((i) => ({ itemId: i.id, done: Boolean(st.done[i.id]) }));
+    btn.disabled = true;
+    btn.textContent = 'กำลังบันทึก…';
+    try {
+      const r = await api('PUT', {
+        date: st.date, items, pain: st.pain, difficulty: st.difficulty, symptoms: [...st.symptoms], note: document.getElementById('note').value,
+      });
+      data.week = r.week; data.weekAdherence = r.weekAdherence;
+      if (st.date === data.today) data.todayLog = { logged: true, doneItems: items.filter((i) => i.done).map((i) => i.itemId), pain: st.pain, difficulty: st.difficulty, symptoms: [...st.symptoms], note: document.getElementById('note').value };
+      st.note = document.getElementById('note').value;
+      render();
+      const box = document.getElementById('result');
+      box.innerHTML = resultHtml(r);
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) {
+      document.getElementById('result').innerHTML = `<section class="card result stop" role="alert">${esc(err.message)}</section>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = st.date === data.today ? 'บันทึกวันนี้' : 'บันทึกของเมื่อวาน';
+    }
+  });
+
+  (async () => {
+    if (!token) {
+      app.innerHTML = '<div class="card center">ลิงก์ไม่ครบ กรุณาเปิดจากข้อความที่คลินิกส่งให้ หรือสแกน QR code อีกครั้ง</div>';
+      return;
+    }
+    try {
+      data = await api('GET');
+      if (data.status !== 'active' || !data.canLogDates.length) {
+        app.innerHTML = `<div class="card center"><h1>โปรแกรมนี้ยังไม่เริ่มหรือสิ้นสุดแล้ว</h1><p class="muted">ช่วงโปรแกรม ${esc(thDate(data.startDate))} – ${esc(thDate(data.endDate))}</p></div>`;
+        return;
+      }
+      loadState(data.canLogDates[0]);
+      render();
+    } catch (err) {
+      app.innerHTML = `<div class="card center"><h1>เปิดโปรแกรมไม่ได้</h1><p>${esc(err.message)}</p></div>`;
+    }
+  })();
+})();
+</script>
+</body>
+</html>

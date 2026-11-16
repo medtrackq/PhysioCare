@@ -12,6 +12,7 @@ const ROUTES = [
   { path: 'facilities3d', label: 'ผัง 3D', icon: '🧊', perm: ['equipment:read'], load: () => import('./views/facilities3d.js') },
   { path: 'facilities', label: 'ห้อง & เตียง', icon: '🛏️', perm: ['equipment:read'], load: () => import('./views/facilities.js') },
   { path: 'staff', label: 'บุคลากร & กะ', icon: '👩‍⚕️', perm: ['staff:read'], load: () => import('./views/staff.js') },
+  { path: 'homecare', label: 'ติดตามที่บ้าน', icon: '🏠', perm: ['emr:read'], load: () => import('./views/homecare.js') },
   { path: 'guidelines', label: 'แนวทางการรักษา', icon: '📚', perm: ['patients:read', 'emr:read'], load: () => import('./views/knowledge.js') },
   { path: 'emr', label: 'เวชระเบียน', icon: '📝', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },
   { path: 'progress', label: 'ความก้าวหน้า', icon: '📈', perm: ['emr:read'], load: () => import('./views/emr.js'), hidden: true },

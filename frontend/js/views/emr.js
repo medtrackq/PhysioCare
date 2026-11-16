@@ -3,6 +3,7 @@ import {
   $, $$, esc, badge, APPT_STATUS, pageHeader, btn, input, toast, showError, fmtDateTime, fmtDate, painColor, card, empty,
 } from '../ui.js';
 import { interventionsHtml, recBadge } from './knowledge.js';
+import { openProgramEditor, openLinks, summaryCardHtml } from './homecare-ui.js';
 
 const JOINTS = {
   cervical: ['flexion', 'extension', 'lateral_flexion', 'rotation'],
@@ -48,6 +49,7 @@ export async function render(root, { route, params, session }) {
     </div>`;
 
   renderLastVisit($('#last'), data.lastVisit);
+  renderHomeCard($('#last'), data, canWrite, () => render(root, { route, params, session }));
   if (a.diagnosis_id) renderGuidelineAside($('#last'), a.diagnosis_id);
   renderForm($('#pre'), 'pre', data, canWrite, session, () => render(root, { route, params, session }));
   if (['in_progress', 'completed'].includes(a.status) || data.post) {
@@ -320,10 +322,12 @@ async function renderProgress(root, patientId) {
           <td>${r.changeFromPrevious == null ? '–' : `${r.changeFromPrevious > 0 ? '+' : ''}${r.changeFromPrevious}°`}</td>
           <td>${r.pctOfNormal ?? '–'}%</td></tr>`).join('')}</tbody></table>
         <canvas id="rom-chart" height="180" class="mt-3"></canvas></div>`)}
-    </div>`;
+    </div>
+    <div id="home-progress" class="mt-5"></div>`;
 
   charts.splice(0).forEach((c) => c.destroy());
   if (!window.Chart) return;
+  renderHomeProgress(patientId);
   const labels = p.visits.map((v) => fmtDate(v.start_at));
   charts.push(new window.Chart($('#pain-chart'), {
     type: 'line',
@@ -351,4 +355,50 @@ async function renderProgress(root, patientId) {
     options: { parsing: true, scales: { x: { type: 'category' }, y: { title: { display: true, text: 'องศา' } } }, plugins: { legend: { position: 'bottom' } } },
   }));
   return () => charts.splice(0).forEach((c) => c.destroy());
+}
+
+/** การ์ดโปรแกรมที่บ้าน: สรุปตั้งแต่นัดก่อน + สั่ง/แก้โปรแกรม + ลิงก์/QR */
+async function renderHomeCard(aside, data, canWrite, reload) {
+  const a = data.appointment;
+  const box = document.createElement('div');
+  aside.prepend(box);
+  let s = null;
+  try { s = await api.get(`/home/patients/${a.patient_id}/summary`); } catch { /* ยังไม่มีโมดูล/สิทธิ์ */ }
+  const active = s && s.status === 'active';
+  const baseline = data.post?.pain_score ?? data.pre?.pain_score ?? null;
+  box.innerHTML = card(`${s ? summaryCardHtml(s) : '<div class="p-4 text-sm"><div class="font-semibold mb-1">🏠 โปรแกรมที่บ้าน</div><div class="text-slate-500">ยังไม่มีโปรแกรมออกกำลังกายที่บ้าน</div></div>'}
+    ${canWrite ? `<div class="px-4 pb-4 flex flex-wrap gap-2">
+      ${active ? `${btn('แก้ไขโปรแกรม', 'data-hp-edit', 'ghost')}${btn('ลิงก์ & QR', 'data-hp-links', 'ghost')}` : btn('สั่งโปรแกรมที่บ้าน', 'data-hp-new')}
+    </div>` : ''}`);
+  const patient = { id: a.patient_id, name: a.patient_name };
+  box.querySelector('[data-hp-new]')?.addEventListener('click', () => openProgramEditor({
+    patient, appointmentId: a.id, baselinePain: baseline, onSaved: (p) => { reload(); openLinks(p.id); },
+  }));
+  box.querySelector('[data-hp-edit]')?.addEventListener('click', async () => {
+    const program = await api.get(`/home/programs/${s.programId}`);
+    openProgramEditor({ patient, program, onSaved: reload });
+  });
+  box.querySelector('[data-hp-links]')?.addEventListener('click', () => openLinks(s.programId, reload));
+}
+
+/** ความก้าวหน้า: ข้อมูลการทำที่บ้าน (8 สัปดาห์ล่าสุด) */
+async function renderHomeProgress(patientId) {
+  let s = null;
+  try { s = await api.get(`/home/patients/${patientId}/summary`); } catch { return; }
+  const el = $('#home-progress');
+  if (!s || !el) return;
+  const series = s.series.filter((x) => x.scheduled || x.logged);
+  el.innerHTML = card(`<div class="p-4"><div class="flex flex-wrap justify-between gap-2 mb-2"><div class="font-semibold">🏠 การทำกายภาพที่บ้าน</div>
+    <a href="#/homecare/${s.programId}" class="text-sm text-brand-700 hover:underline">รายละเอียด →</a></div>
+    <canvas id="home-chart" height="90"></canvas></div>`);
+  charts.push(new window.Chart($('#home-chart'), {
+    data: {
+      labels: series.map((x) => x.date.slice(5)),
+      datasets: [
+        { type: 'bar', label: '% ทำตามโปรแกรม', data: series.map((x) => (x.scheduled ? Math.round((x.done / x.scheduled) * 100) : null)), backgroundColor: '#86efac', yAxisID: 'y' },
+        { type: 'line', label: 'ปวดที่บ้าน', data: series.map((x) => x.pain), borderColor: '#dc2626', backgroundColor: '#dc2626', spanGaps: true, yAxisID: 'y1', tension: 0.25 },
+      ],
+    },
+    options: { scales: { y: { min: 0, max: 100 }, y1: { position: 'right', min: 0, max: 10, grid: { drawOnChartArea: false } } } },
+  }));
 }
