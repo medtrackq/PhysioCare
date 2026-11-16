@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { renderNotifyAdmin } from './notify-ui.js';
 import { $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDateTime, bkkToday, empty } from '../ui.js';
 
 const ROLE_TH = { admin: 'ผู้ดูแลระบบ', therapist: 'นักกายภาพ', staff: 'เจ้าหน้าที่', patient: 'ผู้ป่วย' };
@@ -30,6 +31,8 @@ async function renderAdmin(root, { session }) {
         <table class="text-xs"><thead><tr><th class="text-left p-1">Permission</th>${roles.map((r) => `<th class="p-1">${esc(r.name_th)}</th>`).join('')}</tr></thead>
         <tbody>${allPerms.map((p) => `<tr class="border-t border-slate-100"><td class="p-1 font-mono">${esc(p)}</td>${roles.map((r) => `<td class="text-center">${r.permissions.includes(p) ? '✅' : ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`) : ''}
 
+      ${session.can('settings:manage') ? '<div id="notify-admin"></div>' : ''}
+
       ${card(`<div class="p-4"><h2 class="font-semibold mb-3">ตั้งค่าระบบ</h2>
         <div class="space-y-3">${settings.map((s) => `
           <div class="grid md:grid-cols-3 gap-2 items-center">
@@ -39,11 +42,12 @@ async function renderAdmin(root, { session }) {
           </div>`).join('')}</div></div>`)}
     </div>`;
 
+  if ($('#notify-admin')) renderNotifyAdmin($('#notify-admin')).catch(() => { $('#notify-admin').innerHTML = ''; });
   $$('[data-save-setting]').forEach((b) => b.addEventListener('click', async () => {
     const key = b.dataset.saveSetting;
     let value;
     try { value = JSON.parse($(`[data-setting="${CSS.escape(key)}"]`).value); } catch { toast('รูปแบบ JSON ไม่ถูกต้อง', 'error'); return; }
-    try { await api.put(`/settings/${encodeURIComponent(key)}`, { value }); toast('บันทึกแล้ว', 'success'); } catch (e) { showError(e); }
+    try { await api.put(`/settings/${encodeURIComponent(key)}`, { value }); toast('บันทึกแล้ว', 'success'); if (key.startsWith('notify.') && $('#notify-admin')) renderNotifyAdmin($('#notify-admin')); } catch (e) { showError(e); }
   }));
   $$('[data-pw]').forEach((b) => b.addEventListener('click', () => {
     const m = modal(`ตั้งรหัสผ่านใหม่ · ${b.dataset.name}`, `

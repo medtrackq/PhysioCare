@@ -1,4 +1,5 @@
 import { api, hisLocked } from '../api.js';
+import { renderLineBox } from './notify-ui.js';
 import {
   $, $$, esc, pageHeader, card, btn, input, modal, toast, showError, fmtDate, empty, formModal, compact,
 } from '../ui.js';
@@ -87,6 +88,7 @@ async function openPatient(id, session, reload) {
           ${session.can('emr:read') ? `<a href="#/progress/${p.id}" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 hover:bg-slate-50">📈 ความก้าวหน้า</a>` : ''}
           ${session.can('appointments:write') ? '<a href="#/schedule" class="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-slate-300 hover:bg-slate-50">🗓️ ไปจองนัด</a>' : ''}
         </div>
+        <div id="pd-line"></div>
       </section>
 
       <section>
@@ -125,6 +127,7 @@ async function openPatient(id, session, reload) {
       </section>
     </div>`, { wide: true });
 
+  renderLineBox($('#pd-line', m.el), p, canWrite);
   const refresh = () => { m.close(); reload(); openPatient(id, session, reload); };
   $('#pd-edit', m.el)?.addEventListener('click', () => { m.close(); openPatientForm(p, () => { reload(); openPatient(id, session, reload); }); });
   $('#dx-add', m.el)?.addEventListener('submit', async (e) => {

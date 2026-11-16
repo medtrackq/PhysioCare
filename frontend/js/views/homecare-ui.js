@@ -62,6 +62,11 @@ export async function openProgramEditor({ patient, appointmentId, baselinePain, 
           <label class="block">ปวดตั้งต้น (0–10)<input id="hp-base" type="number" min="0" max="10" class="${input}" value="${program?.baseline_pain ?? baselinePain ?? ''}"></label>
           <label class="block" title="แจ้งเตือนเมื่อปวดเพิ่มจากตั้งต้นเท่านี้ขึ้นไป">แจ้งเตือนเมื่อปวดเพิ่ม<input id="hp-inc" type="number" min="1" max="10" class="${input}" value="${program?.pain_alert_increase ?? 3}"></label>
         </div>
+        <div class="grid sm:grid-cols-4 gap-2">
+          <label class="block" title="เวลาส่งแจ้งเตือนทาง LINE ทุกวันที่มีท่าต้องทำ (เว้นว่าง = ใช้ค่าของคลินิก)">เตือนทาง LINE เวลา<input id="hp-remind" type="time" class="${input}" value="${esc((program?.reminder_time || '').slice(0, 5))}"></label>
+          <div class="sm:col-span-3"><div title="Patient-Specific Functional Scale: ผู้ป่วยให้คะแนน 0–10 ทุกสัปดาห์ว่าทำกิจกรรมนี้ได้แค่ไหน">กิจกรรมที่ผู้ป่วยอยากทำได้ (PSFS สูงสุด 3 อย่าง)</div>
+            <div class="grid grid-cols-3 gap-2">${[0, 1, 2].map((k) => `<input data-psfs class="${input}" maxlength="80" placeholder="${['เช่น เดินขึ้นบันได', 'เช่น นั่งพับเพียบ', 'เช่น อุ้มหลาน'][k]}" value="${esc(program?.psfs_activities?.[k] || '')}">`).join('')}</div></div>
+        </div>
         <label class="block">คำแนะนำถึงผู้ป่วย<textarea id="hp-notes" rows="2" class="${input}" placeholder="เช่น ทำวันละ 2 รอบ เช้า-เย็น ประคบร้อนก่อนทำ">${esc(program?.notes || '')}</textarea></label>
         <div class="font-semibold">ท่าในโปรแกรม <span id="hp-count" class="text-slate-500 font-normal"></span></div>
         <div id="hp-items" class="space-y-2"></div>
@@ -134,6 +139,8 @@ export async function openProgramEditor({ patient, appointmentId, baselinePain, 
     const body = {
       startDate: $('#hp-start', m.el).value, endDate: $('#hp-end', m.el).value,
       baselinePain: num('#hp-base'), painAlertIncrease: num('#hp-inc') ?? 3, notes: $('#hp-notes', m.el).value.trim() || null,
+      reminderTime: $('#hp-remind', m.el).value || null,
+      psfsActivities: [...m.el.querySelectorAll('[data-psfs]')].map((x) => x.value.trim()).filter(Boolean),
       items: items.map((it) => ({ ...(it.id ? { id: it.id } : {}), exerciseId: it.exerciseId, sets: it.sets, reps: it.reps || null, holdSec: it.holdSec || null, perDay: it.perDay || 1, daysOfWeek: it.daysOfWeek, notes: it.notes || null })),
     };
     try {
@@ -169,7 +176,7 @@ function loadQr() {
   });
   return qrLoaded;
 }
-async function qrDataUrl(text, cell = 6) {
+export async function qrDataUrl(text, cell = 6) {
   const qrcode = await loadQr();
   const q = qrcode(0, 'M');
   q.addData(text);
@@ -263,6 +270,19 @@ function printHandout(p, url, qr) {
   w.document.close();
 }
 
+// ------------------------------------------------------------------ PSFS / GROC
+export const GROC_TH = { '-3': 'แย่ลงมาก', '-2': 'แย่ลง', '-1': 'แย่ลงเล็กน้อย', 0: 'เท่าเดิม', 1: 'ดีขึ้นเล็กน้อย', 2: 'ดีขึ้น', 3: 'ดีขึ้นมาก' };
+const grocCls = (g) => (g == null ? 'text-slate-500' : g > 0 ? 'text-emerald-700' : g < 0 ? 'text-rose-700' : 'text-slate-700');
+function checkinLine(s) {
+  if (!s.checkinFirst) return '';
+  const last = s.checkinLast || s.checkinFirst;
+  const a = s.checkinLast ? s.checkinFirst.psfsAvg : null;
+  const b = last.psfsAvg;
+  const g = last.groc;
+  return `<div class="text-xs"><span class="text-slate-500">ประเมินรายสัปดาห์:</span> PSFS ${a != null ? `${a} → ` : ''}<b>${b ?? '–'}</b>/10
+    · <span class="${grocCls(g)}">${g != null ? `${g > 0 ? '+' : ''}${g} ${GROC_TH[g]}` : ''}</span></div>`;
+}
+
 // ------------------------------------------------------------------ summary card (เวชระเบียน)
 export function summaryCardHtml(s) {
   if (!s) return '';
@@ -276,6 +296,7 @@ export function summaryCardHtml(s) {
       <div class="rounded-lg bg-slate-50 p-2"><div class="text-[11px] text-slate-500">ความปวดที่บ้าน</div><div>${trend}</div></div>
     </div>
     ${hard ? `<div class="text-xs">รู้สึกว่ายาก ${hard} วัน</div>` : ''}
+    ${checkinLine(s)}
     ${s.mostSkipped.length ? `<div class="text-xs"><span class="text-slate-500">ข้ามบ่อย:</span> ${s.mostSkipped.map((i) => `${esc(i.name)} (${i.pct}%)`).join(', ')}</div>` : ''}
     ${s.openAlerts.length ? `<div class="rounded-lg bg-rose-50 ring-1 ring-rose-200 p-2 text-xs text-rose-800">⚠ ${s.openAlerts.map((a) => `${ALERT_TH[a.kind]}${a.detail?.symptoms ? `: ${esc(a.detail.symptoms.join(', '))}` : a.detail?.pain != null ? ` (ปวด ${a.detail.pain})` : ''}`).join(' · ')}</div>` : ''}
     <a href="#/homecare/${s.programId}" class="text-xs text-brand-700 hover:underline">ดูรายละเอียด →</a>

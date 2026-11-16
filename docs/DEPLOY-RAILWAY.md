@@ -93,6 +93,15 @@ ADMIN_NAME=ผู้ดูแลระบบ
 
 ชื่อตัวแปรของการเชื่อมต่อต้องขึ้นต้นด้วย `HIS_` เสมอ (ระบบไม่ยอมอ่านตัวแปรอื่น เพื่อกันการส่งรหัสลับของระบบออกไปภายนอก)
 
+ตัวแปรสำหรับแจ้งเตือนผู้ป่วยทาง LINE (ไม่บังคับ — ขั้นตอนเต็มดู [LINE-SETUP.md](LINE-SETUP.md)):
+
+| ตัวแปร | ใช้เมื่อ |
+|---|---|
+| `LINE_CHANNEL_SECRET` | ตรวจลายเซ็นข้อความที่ LINE ส่งมา (Basic settings ใน LINE Developers Console) |
+| `LINE_CHANNEL_ACCESS_TOKEN` | ส่งข้อความหาผู้ป่วย (Messaging API → Channel access token) |
+| `APP_BASE_URL` | ใช้โดเมนของคลินิกแทนโดเมน Railway (ระบบใช้แนบลิงก์ในข้อความ) |
+| `NOTIFY_WORKER` | ตั้ง `false` เพื่อหยุดตัวส่งข้อความชั่วคราว |
+
 > ⚠ ห้ามตั้ง `DEMO_MODE=true` ใน project ที่ใช้กับผู้ป่วยจริง (ดูขั้นที่ 9)
 
 ## ขั้นที่ 6 ตั้ง health check และการรีสตาร์ต

@@ -17,6 +17,8 @@ module.exports = {
   uploadDir: path.resolve(env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads')),
   maxUploadBytes: Number(env.MAX_UPLOAD_MB || 5) * 1024 * 1024,
   corsOrigin: env.CORS_ORIGIN || '',
+  // URL สาธารณะของระบบ (ใช้แนบลิงก์ในข้อความ LINE) — Railway ตั้ง RAILWAY_PUBLIC_DOMAIN ให้อัตโนมัติ
+  appBaseUrl: env.APP_BASE_URL || (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : ''),
   frontendDir: path.resolve(__dirname, '..', '..', 'frontend'),
   loginMaxAttempts: 5,
   loginLockMinutes: 15,

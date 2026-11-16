@@ -36,6 +36,8 @@ const programBody = z.object({
   notes: z.string().max(2000).nullish(),
   consent: z.literal(true, { errorMap: () => ({ message: 'ต้องได้รับความยินยอมจากผู้ป่วยหรือผู้แทน' }) }),
   consentNote: z.string().max(500).nullish(),
+  reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'เวลา HH:MM').nullish(),
+  psfsActivities: z.array(z.string().min(1).max(80)).max(3).optional(),
   items: z.array(itemBody).min(1).max(20),
 });
 
@@ -128,6 +130,10 @@ router.patch('/programs/:id', authorize('emr:write'), validate({
   res.json(p);
 });
 
+router.get('/programs/:id/suggestions', authorize('emr:read'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
+  res.json(await home.suggestions(req.valid.params.id));
+});
+
 router.post('/programs/:id/end', authorize('emr:write'), validate({ params: z.object({ id: uuid }) }), async (req, res) => {
   await home.endProgram(req.valid.params.id);
   await audit(req, 'home_program.end', 'home_program', req.valid.params.id);
@@ -176,6 +182,20 @@ publicRouter.put('/log', validate({
   }),
 }), async (req, res) => {
   res.json(await home.saveLog(token(req), req.valid.body));
+});
+
+publicRouter.put('/checkin', validate({
+  body: z.object({
+    psfs: z.array(z.object({ activity: z.string().max(80), score: z.number().int().min(0).max(10) })).max(3).default([]),
+    groc: z.number().int().min(-3).max(3).nullish(),
+  }),
+}), async (req, res) => {
+  res.json(await home.saveCheckin(token(req), req.valid.body));
+});
+
+// ผู้ป่วยขอรหัสเชื่อม LINE เพื่อรับการแจ้งเตือน (สูงสุด 5 ครั้ง/ชั่วโมง/IP)
+publicRouter.post('/line-code', rateLimit({ windowMs: 60 * 60_000, max: 5, key: (req) => `homeline:${req.ip}` }), async (req, res) => {
+  res.json(await home.publicLineCode(token(req)));
 });
 
 module.exports = { router, publicRouter };

@@ -32,7 +32,10 @@ function createApp() {
   const fhirJson = express.json({ limit: '10mb', type: ['application/json', 'application/fhir+json'] });
   // ข้อมูลที่เข้ารหัสชั้นที่ 2 (JWE compact) มาเป็นข้อความ application/jose
   const jose = express.text({ limit: '14mb', type: 'application/jose' });
+  // LINE webhook: ต้องใช้ raw body ตรวจลายเซ็น
+  const raw = express.raw({ type: '*/*', limit: '1mb' });
   app.use((req, res, next) => {
+    if (req.path === '/api/line/webhook') return raw(req, res, next);
     if (!req.path.startsWith('/api/integration/')) return json(req, res, next);
     return fhirJson(req, res, (err) => (err ? next(err) : jose(req, res, next)));
   });

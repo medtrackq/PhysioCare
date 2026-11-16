@@ -38,6 +38,11 @@ services:
       HIS_TOKEN: ${HIS_TOKEN:-}
       HIS_PAYLOAD_KEY: ${HIS_PAYLOAD_KEY:-}
       INTEGRATION_WORKER: ${INTEGRATION_WORKER:-true}
+      # แจ้งเตือนผู้ป่วยทาง LINE (ไม่บังคับ) — ดู docs/LINE-SETUP.md
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      APP_BASE_URL: ${APP_BASE_URL:-}
+      NOTIFY_WORKER: ${NOTIFY_WORKER:-true}
     volumes:
       - uploads:/data/uploads
     expose:

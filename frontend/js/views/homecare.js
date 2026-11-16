@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { $, esc, pageHeader, btn, input, card, empty, toast, showError, fmtDate, formModal } from '../ui.js';
 import {
-  REGION_TH, ALERT_TH, DIFF_TH, DOW_TH, doseText, pctBadge, openProgramEditor, openLinks,
+  REGION_TH, ALERT_TH, DIFF_TH, DOW_TH, GROC_TH, doseText, pctBadge, openProgramEditor, openLinks,
 } from './homecare-ui.js';
 
 /**
@@ -79,6 +79,8 @@ async function renderDetail(root, id, session) {
           </tbody></table></div>`)}
       </div>
       <aside class="space-y-4">
+        ${d.status === 'active' ? '<div id="hc-suggest"></div>' : ''}
+        ${checkinCard(d)}
         ${card(`<div class="p-4"><div class="font-semibold mb-2">ท่าในโปรแกรม</div><div class="space-y-2 text-sm">
           ${d.items.filter((i) => i.is_active).map((i) => {
     const s = d.itemStats.find((x) => x.id === i.id);
@@ -107,6 +109,7 @@ async function renderDetail(root, id, session) {
   }
 
   const reload = () => renderDetail(root, id, session);
+  if ($('#hc-suggest')) renderSuggestions($('#hc-suggest'), d, canWrite, reload);
   $('#hc-links')?.addEventListener('click', () => openLinks(id, reload));
   $('#hc-edit')?.addEventListener('click', () => openProgramEditor({ patient: { id: d.patient_id, name: d.patient_name }, program: d, onSaved: reload }));
   $('#hc-end')?.addEventListener('click', async () => {
@@ -117,6 +120,61 @@ async function renderDetail(root, id, session) {
     try { await api.post(`/home/alerts/${b.dataset.ack}/ack`, { note: root.querySelector(`[data-ack-note="${b.dataset.ack}"]`).value || undefined }); toast('รับทราบแล้ว', 'success'); reload(); } catch (err) { showError(err); }
   }));
   return () => { chart?.destroy(); chart = null; };
+}
+
+// ------------------------------------------------------------------ PSFS / GROC รายสัปดาห์
+function checkinCard(d) {
+  const acts = d.psfs_activities || [];
+  if (!acts.length && !d.checkins.length) return '';
+  const rows = [...d.checkins].reverse();
+  const cell = (v) => `<td class="text-center ${v == null ? 'text-slate-300' : ''}">${v ?? '–'}</td>`;
+  return card(`<div class="p-4 text-sm space-y-2"><div class="font-semibold">ประเมินรายสัปดาห์ (PSFS / GROC)</div>
+    ${acts.length ? `<div class="text-xs text-slate-500">กิจกรรม: ${acts.map((a, i) => `${i + 1}) ${esc(a)}`).join(' · ')}</div>` : ''}
+    ${rows.length ? `<div class="overflow-x-auto"><table class="w-full text-xs"><thead class="text-slate-500"><tr><th class="text-left py-1">วันที่</th>${acts.map((_, i) => `<th>${i + 1}</th>`).join('')}<th>เฉลี่ย</th><th class="text-left">GROC</th></tr></thead><tbody>
+      ${rows.map((c) => `<tr class="border-t border-slate-100"><td class="py-1 whitespace-nowrap">${fmtDate(c.date)}</td>${acts.map((a) => cell(c.psfs?.find((x) => x.activity === a)?.score)).join('')}
+        <td class="text-center font-semibold">${c.psfsAvg ?? '–'}</td>
+        <td class="${c.groc > 0 ? 'text-emerald-700' : c.groc < 0 ? 'text-rose-700' : ''}">${c.groc != null ? `${c.groc > 0 ? '+' : ''}${c.groc} ${GROC_TH[c.groc]}` : '–'}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="text-[11px] text-slate-500">PSFS 0 = ทำไม่ได้เลย, 10 = ทำได้เหมือนก่อนบาดเจ็บ · เปลี่ยนแปลง ≥ 2 คะแนนถือว่ามีนัยสำคัญทางคลินิก</div>`
+    : '<div class="text-xs text-slate-400">ผู้ป่วยยังไม่ได้ประเมิน — ระบบจะชวนประเมินในหน้าลิงก์ทุก 7 วัน</div>'}
+  </div>`);
+}
+
+// ------------------------------------------------------------------ แนะนำปรับระดับ (นักกายภาพอนุมัติ)
+const SUG = {
+  progress: ['เพิ่มความยาก', 'bg-emerald-50 ring-emerald-200 text-emerald-800'],
+  regress: ['ลดความยาก', 'bg-amber-50 ring-amber-200 text-amber-800'],
+  review: ['ควรสอบถาม', 'bg-slate-50 ring-slate-200 text-slate-700'],
+};
+const doseOf = (x) => [x.sets ? `${x.sets} เซ็ต` : '', x.reps ? `${x.reps} ครั้ง` : '', x.holdSec ? `ค้าง ${x.holdSec} วิ` : ''].filter(Boolean).join(' × ');
+
+async function renderSuggestions(el, d, canWrite, reload) {
+  let s;
+  try { s = await api.get(`/home/programs/${d.id}/suggestions`); } catch { return; }
+  el.innerHTML = card(`<div class="p-4 text-sm space-y-2">
+    <div class="font-semibold">ระบบแนะนำปรับระดับท่า</div>
+    <div class="text-[11px] text-slate-500">จากข้อมูล 7 วันล่าสุด (บันทึก ${s.basis.loggedDays} วัน${s.basis.hardRatio != null ? ` · รู้สึกยาก ${s.basis.hardRatio}%` : ''}${s.basis.painAvg != null ? ` · ปวดเฉลี่ย ${s.basis.painAvg}` : ''}) — เป็นข้อเสนอเท่านั้น นักกายภาพเป็นผู้ตัดสินใจ</div>
+    ${s.note ? `<div class="text-xs text-slate-400">${esc(s.note)}</div>` : ''}
+    ${!s.note && !s.items.length ? '<div class="text-xs text-slate-500">ยังไม่มีข้อเสนอ — ระดับปัจจุบันเหมาะสมดี</div>' : ''}
+    ${s.items.map((x, k) => `<div class="rounded-lg ring-1 ring-inset p-2.5 space-y-1 ${SUG[x.type][1]}">
+      <div class="flex justify-between gap-2"><b>${esc(x.name)}</b><span class="text-[11px] font-semibold">${SUG[x.type][0]}</span></div>
+      ${x.proposed ? `<div class="text-xs">${esc(doseOf(x.current))} → <b>${esc(doseOf(x.proposed))}</b></div>` : ''}
+      <div class="text-[11px] opacity-80">${esc(x.reason)}</div>
+      ${canWrite && x.proposed ? `<div class="pt-1">${btn('ใช้ตามที่แนะนำ', `data-sug="${k}"`, 'ghost')}</div>` : ''}
+    </div>`).join('')}
+  </div>`);
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-sug]');
+    if (!b) return;
+    const x = s.items[Number(b.dataset.sug)];
+    if (!confirm(`ปรับ "${x.name}" เป็น ${doseOf(x.proposed)}? ผู้ป่วยจะเห็นขนาดใหม่ในลิงก์ทันที`)) return;
+    const items = d.items.filter((i) => i.is_active).map((i) => {
+      const base = { id: i.id, exerciseId: i.exercise_id, sets: i.sets, reps: i.reps, holdSec: i.hold_sec, perDay: i.per_day, daysOfWeek: i.days_of_week, notes: i.notes };
+      return i.id === x.itemId ? { ...base, sets: x.proposed.sets, reps: x.proposed.reps, holdSec: x.proposed.holdSec } : base;
+    });
+    b.disabled = true;
+    try { await api.patch(`/home/programs/${d.id}`, { items }); toast('ปรับระดับท่าแล้ว', 'success'); reload(); } catch (err) { showError(err); b.disabled = false; }
+  });
 }
 
 // ------------------------------------------------------------------ exercise library

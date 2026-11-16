@@ -10,6 +10,9 @@ router.use('/integration/inbound', integration.inboundRouter);
 // ผู้ป่วย/ญาติเปิดโปรแกรมที่บ้านผ่านลิงก์ (ยืนยันด้วย token ของลิงก์ ไม่ใช่ JWT)
 const homeRoutes = require('./home.routes');
 router.use('/public/home', homeRoutes.publicRouter);
+// LINE webhook (ยืนยันด้วยลายเซ็นของ LINE)
+const notifyRoutes = require('./notify.routes');
+router.use('/line/webhook', notifyRoutes.webhookRouter);
 
 // ทุก route ด้านล่างต้อง login
 router.use(authenticate);
@@ -26,6 +29,7 @@ router.use('/reports', require('./reports.routes'));
 router.use('/knowledge', require('./knowledge.routes'));
 router.use('/integration', integration.router);
 router.use('/home', homeRoutes.router);
+router.use('/notify', notifyRoutes.router);
 router.use('/', require('./scheduling.routes'));
 
 module.exports = router;

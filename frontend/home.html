@@ -74,6 +74,15 @@
     button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
     .center { text-align: center; }
     [hidden] { display: none !important; }
+    .checkin { border: 2px solid var(--brand); }
+    .psfs-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .psfs-row:last-child { border-bottom: 0; }
+    .psfs-row .lbl { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+    input[type=range] { width: 100%; height: 36px; accent-color: var(--brand); }
+    .groc { display: grid; gap: 6px; }
+    .groc button { min-height: 44px; text-align: left; padding: 0 14px; }
+    .line-card { background: #f0fdf4; border-color: #86efac; }
+    .line-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; border: 0; border-radius: 12px; background: #06c755; color: #fff; font: inherit; font-weight: 700; cursor: pointer; text-decoration: none; }
   </style>
 </head>
 <body>
@@ -92,8 +101,8 @@
   const isoDow = (d) => { const x = new Date(`${d}T12:00:00Z`).getUTCDay(); return x === 0 ? 7 : x; };
   const PAIN_COLOR = (n) => (n <= 3 ? '#15803d' : n <= 6 ? '#a15c00' : '#b42318');
 
-  async function api(method, body) {
-    const res = await fetch(`/api/public/home${method === 'PUT' ? '/log' : ''}`, {
+  async function api(method, body, path = method === 'PUT' ? '/log' : '') {
+    const res = await fetch(`/api/public/home${path}`, {
       method, headers: { 'X-Home-Token': token, ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
@@ -103,6 +112,46 @@
 
   let data;
   const st = { date: null, done: {}, pain: null, difficulty: null, symptoms: new Set(), note: '' };
+  const ck = { psfs: {}, groc: null, open: false, saved: false };
+  const GROC = [[3, 'ดีขึ้นมาก'], [2, 'ดีขึ้น'], [1, 'ดีขึ้นเล็กน้อย'], [0, 'เท่าเดิม'], [-1, 'แย่ลงเล็กน้อย'], [-2, 'แย่ลง'], [-3, 'แย่ลงมาก']];
+
+  function checkinHtml() {
+    const c = data.checkin;
+    if (!c || !c.activities?.length) return '';
+    if (ck.saved) return '<section class="card result ok" role="status"><h2>ขอบคุณที่ประเมินสัปดาห์นี้</h2><div>นักกายภาพจะใช้คะแนนนี้ปรับโปรแกรมให้เหมาะกับคุณ</div></section>';
+    if (!c.due) return '';
+    if (!ck.open) {
+      return `<section class="card checkin"><h2>ประเมินประจำสัปดาห์ (1 นาที)</h2>
+        <div class="muted">ช่วยให้นักกายภาพรู้ว่าคุณทำกิจกรรมที่ตั้งใจไว้ได้ดีขึ้นแค่ไหน</div>
+        <button type="button" class="done-toggle" data-ck-open style="margin-top:10px">เริ่มประเมิน</button></section>`;
+    }
+    const lastScore = (a) => c.last?.psfs?.find((x) => x.activity === a)?.score;
+    return `<section class="card checkin"><h2>ประเมินประจำสัปดาห์</h2>
+      <div class="muted">เลื่อนให้ตรงกับความสามารถของคุณตอนนี้ · 0 = ทำไม่ได้เลย, 10 = ทำได้เหมือนก่อนเจ็บ</div>
+      ${c.activities.map((a, k) => {
+    const v = ck.psfs[a] ?? lastScore(a) ?? 5;
+    ck.psfs[a] = v;
+    return `<div class="psfs-row"><label class="lbl" for="psfs-${k}"><span>${esc(a)}</span><span data-psfs-val="${k}">${v}</span></label>
+          <input id="psfs-${k}" type="range" min="0" max="10" step="1" value="${v}" data-psfs="${esc(a)}" data-k="${k}" aria-valuetext="${v} จาก 10">
+          ${lastScore(a) != null ? `<div class="muted">ครั้งก่อน ${lastScore(a)}</div>` : ''}</div>`;
+  }).join('')}
+      <h2 style="margin-top:14px">เทียบกับตอนเริ่มโปรแกรม อาการโดยรวมเป็นอย่างไร</h2>
+      <div class="groc pick" role="group" aria-label="อาการโดยรวม">
+        ${GROC.map(([v, l]) => `<button type="button" data-groc="${v}" aria-pressed="${ck.groc === v}">${l}</button>`).join('')}
+      </div>
+      <button type="button" class="done-toggle" data-ck-save aria-pressed="true" style="margin-top:12px">ส่งผลประเมิน</button>
+      <div data-ck-err class="caution" hidden></div>
+    </section>`;
+  }
+
+  function lineHtml() {
+    const l = data.line;
+    if (!l || !l.enabled || l.linked) return '';
+    return `<section class="card line-card"><h2>รับการแจ้งเตือนทาง LINE</h2>
+      <div class="muted">เตือนเวลาทำกายภาพและเตือนนัดล่วงหน้า (ข้อความไม่มีข้อมูลการรักษา) · ยกเลิกได้ทุกเมื่อโดยพิมพ์ "หยุด"</div>
+      <button type="button" class="line-btn" data-line style="margin-top:10px">เชื่อมต่อ LINE</button>
+      <div data-line-out></div></section>`;
+  }
 
   function dose(i) {
     const parts = [`${i.sets} เซ็ต`];
@@ -147,6 +196,8 @@
       ${data.canLogDates.length > 1 ? `<div class="seg" role="group" aria-label="เลือกวันที่บันทึก">
         ${data.canLogDates.map((d) => `<button type="button" data-date="${d}" aria-pressed="${d === st.date}">${d === data.today ? 'วันนี้' : 'เมื่อวาน'}</button>`).join('')}
       </div>` : ''}
+
+      ${checkinHtml()}
 
       ${data.notes ? `<section class="card"><h2>คำแนะนำจากนักกายภาพ</h2><div>${esc(data.notes)}</div></section>` : ''}
 
@@ -193,6 +244,7 @@
       </section>
 
       <div id="result"></div>
+      ${lineHtml()}
       <p class="muted center">ข้อมูลนี้ส่งถึงนักกายภาพของคุณเท่านั้น · ถ้าใช้โทรศัพท์ร่วมกับผู้อื่น อย่าแชร์ลิงก์นี้</p>`;
     document.getElementById('save-bar').hidden = false;
     document.getElementById('save').textContent = st.date === data.today ? 'บันทึกวันนี้' : 'บันทึกของเมื่อวาน';
@@ -215,10 +267,52 @@
     const t = e.target.closest('button');
     if (!t) return;
     if (t.dataset.date) { loadState(t.dataset.date); render(); return; }
+    if ('ckOpen' in t.dataset) { ck.open = true; render(); document.querySelector('.checkin')?.scrollIntoView({ block: 'start' }); return; }
+    if (t.dataset.groc) { ck.groc = Number(t.dataset.groc); app.querySelectorAll('[data-groc]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.groc) === ck.groc))); return; }
+    if ('ckSave' in t.dataset) { saveCheckin(t); return; }
+    if ('line' in t.dataset) { linkLine(t); return; }
     if (t.dataset.item) { st.done[t.dataset.item] = !st.done[t.dataset.item]; t.setAttribute('aria-pressed', String(st.done[t.dataset.item])); t.textContent = st.done[t.dataset.item] ? '✓ ทำแล้ว' : 'กดเมื่อทำเสร็จ'; return; }
     if (t.dataset.pain) { st.pain = Number(t.dataset.pain); app.querySelectorAll('[data-pain]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.pain) === st.pain))); return; }
     if (t.dataset.diff) { st.difficulty = t.dataset.diff; app.querySelectorAll('[data-diff]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.diff === st.difficulty))); }
   });
+  app.addEventListener('input', (e) => {
+    const r = e.target.closest('[data-psfs]');
+    if (!r) return;
+    ck.psfs[r.dataset.psfs] = Number(r.value);
+    r.setAttribute('aria-valuetext', `${r.value} จาก 10`);
+    app.querySelector(`[data-psfs-val="${r.dataset.k}"]`).textContent = r.value;
+  });
+
+  async function saveCheckin(b) {
+    const err = app.querySelector('[data-ck-err]');
+    if (ck.groc == null) { err.textContent = 'กรุณาเลือกอาการโดยรวม'; err.hidden = false; return; }
+    b.disabled = true; b.textContent = 'กำลังส่ง…';
+    try {
+      const r = await api('PUT', { psfs: data.checkin.activities.map((a) => ({ activity: a, score: ck.psfs[a] })), groc: ck.groc }, '/checkin');
+      data.checkin.due = false; data.checkin.last = r.checkins.at(-1) || null;
+      ck.saved = true;
+      render();
+    } catch (ex) {
+      err.textContent = ex.message; err.hidden = false; b.disabled = false; b.textContent = 'ส่งผลประเมิน';
+    }
+  }
+
+  async function linkLine(b) {
+    const out = app.querySelector('[data-line-out]');
+    b.disabled = true;
+    try {
+      const r = await api('POST', {}, '/line-code');
+      if (r.url) {
+        out.innerHTML = `<p class="muted">ถ้า LINE ไม่เปิดเอง <a href="${esc(r.url)}" class="video">แตะที่นี่</a> แล้วกดส่งข้อความที่ขึ้นมา</p>`;
+        location.href = r.url;
+      } else {
+        out.innerHTML = `<p>เพิ่มเพื่อน LINE ของคลินิก แล้วพิมพ์รหัสนี้ส่งในแชต<br><b style="font-size:1.4rem;letter-spacing:.2em">${esc(r.code)}</b></p>`;
+      }
+    } catch (ex) {
+      out.innerHTML = `<p class="caution">${esc(ex.message)}</p>`;
+    } finally { b.disabled = false; }
+  }
+
   app.addEventListener('change', (e) => {
     const s = e.target.closest('[data-sym]');
     if (s) { if (s.checked) st.symptoms.add(s.dataset.sym); else st.symptoms.delete(s.dataset.sym); }

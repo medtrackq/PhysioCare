@@ -36,6 +36,7 @@ async function listExercises({ includeInactive = false } = {}) {
 }
 
 // ------------------------------------------------------------------ programs
+const cleanPsfs = (a) => (a || []).map((x) => String(x).trim()).filter(Boolean).slice(0, 3);
 const ITEM_COLS = 'sets, reps, hold_sec, per_day, days_of_week, notes, sort_order';
 
 async function loadProgram(client, id) {
@@ -46,11 +47,11 @@ async function loadProgram(client, id) {
       WHERE hp.id = $1`, [id]);
   if (!p) throw notFound('โปรแกรมที่บ้าน');
   const { rows: items } = await client.query(
-    `SELECT i.id, i.exercise_id, ${ITEM_COLS.split(', ').map((c) => `i.${c}`).join(', ')}, i.is_active,
+    `SELECT i.id, i.exercise_id, ${ITEM_COLS.split(', ').map((c) => `i.${c}`).join(', ')}, i.is_active, i.dose_changed_at,
             e.code, e.name_th, e.name_en, e.body_region, e.instructions, e.cautions, e.video_url
        FROM home_program_items i JOIN exercises e ON e.id = i.exercise_id
       WHERE i.program_id = $1 ORDER BY i.is_active DESC, i.sort_order, e.name_th`, [id]);
-  return { ...p, start_date: ymd(p.start_date), end_date: ymd(p.end_date), items };
+  return { ...p, start_date: ymd(p.start_date), end_date: ymd(p.end_date), reminder_time: p.reminder_time ? String(p.reminder_time).slice(0, 5) : null, items };
 }
 
 function validateItems(items) {
@@ -64,7 +65,9 @@ async function upsertItems(client, programId, items) {
     const vals = [it.sets, it.reps ?? null, it.holdSec ?? null, it.perDay ?? 1, it.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7], it.notes ?? null, i];
     if (it.id) {
       const { rowCount } = await client.query(
-        `UPDATE home_program_items SET sets=$3, reps=$4, hold_sec=$5, per_day=$6, days_of_week=$7, notes=$8, sort_order=$9, is_active=true
+        `UPDATE home_program_items SET
+            dose_changed_at = CASE WHEN (sets, reps, hold_sec) IS DISTINCT FROM ($3::int, $4::int, $5::int) THEN now() ELSE dose_changed_at END,
+            sets=$3, reps=$4, hold_sec=$5, per_day=$6, days_of_week=$7, notes=$8, sort_order=$9, is_active=true
           WHERE id = $1 AND program_id = $2`, [it.id, programId, ...vals]);
       if (!rowCount) throw badRequest('ท่าที่อ้างถึงไม่อยู่ในโปรแกรมนี้');
       keep.push(it.id);
@@ -101,10 +104,10 @@ async function createProgram(user, b) {
     await c.query("UPDATE home_programs SET status = 'ended', ended_at = now(), updated_at = now() WHERE patient_id = $1 AND status = 'active'", [b.patientId]);
     const { rows: [p] } = await c.query(
       `INSERT INTO home_programs (patient_id, therapist_id, appointment_id, start_date, end_date, baseline_pain, pain_alert_increase, notes,
-                                  consent_at, consent_note, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), $9, $10) RETURNING id`,
+                                  consent_at, consent_note, created_by, reminder_time, psfs_activities)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), $9, $10, $11, $12) RETURNING id`,
       [b.patientId, therapistId, b.appointmentId || null, b.startDate, b.endDate, baseline, b.painAlertIncrease ?? 3, b.notes || null,
-        b.consentNote || null, user.id]);
+        b.consentNote || null, user.id, b.reminderTime || null, cleanPsfs(b.psfsActivities)]);
     await upsertItems(c, p.id, b.items);
     return loadProgram(c, p.id);
   });
@@ -119,8 +122,11 @@ async function updateProgram(id, b) {
     if (end < start) throw badRequest('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม');
     await c.query(
       `UPDATE home_programs SET start_date=$2, end_date=$3, notes=COALESCE($4, notes), pain_alert_increase=COALESCE($5, pain_alert_increase),
-              baseline_pain=COALESCE($6, baseline_pain), updated_at=now() WHERE id=$1`,
-      [id, start, end, b.notes ?? null, b.painAlertIncrease ?? null, b.baselinePain ?? null]);
+              baseline_pain=COALESCE($6, baseline_pain),
+              reminder_time = CASE WHEN $7 THEN $8::time ELSE reminder_time END,
+              psfs_activities = COALESCE($9, psfs_activities), updated_at=now() WHERE id=$1`,
+      [id, start, end, b.notes ?? null, b.painAlertIncrease ?? null, b.baselinePain ?? null,
+        b.reminderTime !== undefined, b.reminderTime || null, b.psfsActivities ? cleanPsfs(b.psfsActivities) : null]);
     if (b.items) { validateItems(b.items); await upsertItems(c, id, b.items); }
     // ขยายวันสิ้นสุด → ต่ออายุลิงก์ที่ยังใช้อยู่ให้ตรงกัน
     await c.query(
@@ -200,6 +206,36 @@ const pct = (series) => {
   return s ? Math.round((series.reduce((a, d) => a + d.done, 0) / s) * 100) : null;
 };
 
+// ------------------------------------------------------------------ แบบประเมินรายสัปดาห์ (PSFS + GROC)
+async function checkins(client, programId) {
+  const { rows } = await client.query('SELECT checkin_date, psfs, groc FROM home_checkins WHERE program_id = $1 ORDER BY checkin_date', [programId]);
+  return rows.map((r) => ({ date: ymd(r.checkin_date), psfs: r.psfs, groc: r.groc, psfsAvg: avgPsfs(r.psfs) }));
+}
+const avgPsfs = (list) => {
+  const v = (list || []).map((x) => x.score).filter((x) => Number.isInteger(x));
+  return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
+};
+/** ถึงรอบประเมินเมื่อยังไม่เคยประเมิน หรือครั้งล่าสุดเกิน 6 วัน */
+function checkinDue(list, today) {
+  const last = list.at(-1);
+  return !last || (new Date(`${today}T00:00:00Z`) - new Date(`${last.date}T00:00:00Z`)) / DAY_MS >= 7;
+}
+
+async function saveCheckin(token, b) {
+  const link = await resolveToken(token);
+  if (link.status !== 'active') throw conflict('PROGRAM_ENDED', 'โปรแกรมนี้สิ้นสุดแล้ว');
+  const p = await loadProgram(db, link.program_id);
+  const allowed = new Set(p.psfs_activities);
+  const psfs = (b.psfs || []).filter((x) => allowed.has(x.activity)).map((x) => ({ activity: x.activity, score: x.score }));
+  if (!psfs.length && b.groc == null) throw badRequest('กรุณาตอบอย่างน้อย 1 ข้อ');
+  const today = bkkDate();
+  await db.query(
+    `INSERT INTO home_checkins (program_id, checkin_date, psfs, groc) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (program_id, checkin_date) DO UPDATE SET psfs = EXCLUDED.psfs, groc = EXCLUDED.groc`,
+    [p.id, today, JSON.stringify(psfs), b.groc ?? null]);
+  return { saved: true, checkins: await checkins(db, p.id) };
+}
+
 // ------------------------------------------------------------------ public (ผู้ป่วย/ญาติ)
 async function publicView(token) {
   const link = await resolveToken(token);
@@ -226,7 +262,23 @@ async function publicView(token) {
     weekAdherence: pct(week.filter((d) => d.date <= today)),
     redFlags: RED_FLAGS,
     contactPhone: phone?.v || null,
+    checkin: await (async () => {
+      const list = await checkins(db, p.id);
+      return { activities: p.psfs_activities, due: checkinDue(list, today), last: list.at(-1) || null };
+    })(),
+    line: await (async () => {
+      const { rows: [c] } = await db.query('SELECT line_user_id, opted_out_at, blocked_at FROM patient_contacts WHERE patient_id = $1', [p.patient_id]);
+      const { rows: [n] } = await db.query("SELECT value FROM system_settings WHERE key = 'notify.enabled'");
+      return { enabled: n?.value === true, linked: Boolean(c?.line_user_id && !c.opted_out_at && !c.blocked_at) };
+    })(),
   };
+}
+
+/** ผู้ป่วยขอรหัสเชื่อม LINE จากหน้าโปรแกรมเอง */
+async function publicLineCode(token) {
+  const link = await resolveToken(token);
+  const { rows: [p] } = await db.query('SELECT patient_id FROM home_programs WHERE id = $1', [link.program_id]);
+  return require('./notify.service').createLinkCode(p.patient_id, null);
 }
 
 async function saveLog(token, b) {
@@ -303,7 +355,7 @@ async function programDetail(id, { days = 28 } = {}) {
     return { id: i.id, name: i.name_th, scheduled: sched.length, done, pct: sched.length ? Math.round((done / sched.length) * 100) : null };
   });
   return {
-    ...p, links, alerts, series, itemStats,
+    ...p, links, alerts, series, itemStats, checkins: await checkins(db, id),
     adherence7: pct(series.slice(-7)), adherenceAll: pct(series),
   };
 }
@@ -337,6 +389,8 @@ async function patientSummary(patientId) {
     openAlerts: d.alerts.filter((a) => !a.acknowledged_at),
     series: d.series,
     lastLogDate: [...d.series].reverse().find((x) => x.logged)?.date || null,
+    checkinFirst: d.checkins[0] || null,
+    checkinLast: d.checkins.length > 1 ? d.checkins.at(-1) : null,
   };
 }
 
@@ -366,6 +420,57 @@ async function monitor({ therapistId = null } = {}) {
   return list.sort((a, b) => (b.openAlerts.length - a.openAlerts.length) || (b.daysWithoutLog - a.daysWithoutLog) || ((a.adherence7 ?? 101) - (b.adherence7 ?? 101)));
 }
 
+/**
+ * แนะนำปรับระดับท่าจาก 7 วันล่าสุด
+ *  เพิ่มความยาก: ทำ ≥ 80% ของวันที่กำหนด, รู้สึก "ยาก" ≤ 20% ของวันที่บันทึก, ปวดเฉลี่ยไม่สูงกว่าตั้งต้น
+ *  ลดความยาก:   รู้สึก "ยาก" ≥ 50% หรือปวดเฉลี่ยสูงกว่าตั้งต้น ≥ 2 และทำได้ < 60%
+ *  ทบทวน:       ทำ < 30% ทั้งที่ยังบันทึกอยู่ (อาจไม่เข้าใจท่า/เจ็บ/ไม่มีเวลา)
+ */
+function suggestFor(detail) {
+  const win = detail.series.slice(-7);
+  const loggedDays = win.filter((d) => d.logged);
+  if (loggedDays.length < 3) return { basis: { loggedDays: loggedDays.length }, items: [], note: 'ข้อมูลยังไม่พอ (ต้องบันทึกอย่างน้อย 3 วันใน 7 วันล่าสุด)' };
+  const hardRatio = loggedDays.filter((d) => d.difficulty === 'hard').length / loggedDays.length;
+  const pains = loggedDays.map((d) => d.pain).filter((x) => x != null);
+  const painAvg = pains.length ? pains.reduce((a, b) => a + b, 0) / pains.length : null;
+  const baseline = detail.baseline_pain ?? (detail.series.find((d) => d.pain != null)?.pain ?? null);
+  const painRise = painAvg != null && baseline != null ? painAvg - baseline : 0;
+  const items = [];
+  for (const it of detail.items.filter((i) => i.is_active)) {
+    // นับเฉพาะวันหลังปรับขนาดท่าครั้งล่าสุด
+    const since = it.dose_changed_at ? new Date(new Date(it.dose_changed_at).getTime() + 7 * 3600e3).toISOString().slice(0, 10) : null;
+    const sched = win.filter((d) => it.days_of_week.includes(isoDow(d.date)) && (!since || d.date > since));
+    if (sched.length < 2) continue;
+    const doneRatio = sched.filter((d) => d.doneItems.includes(it.id)).length / sched.length;
+    const cur = { sets: it.sets, reps: it.reps, holdSec: it.hold_sec };
+    let type = null;
+    let next = null;
+    let reason = '';
+    if (doneRatio >= 0.8 && hardRatio <= 0.2 && painRise <= 0) {
+      type = 'progress';
+      if (it.reps) next = { ...cur, reps: Math.min(100, Math.max(it.reps + 2, Math.round(it.reps * 1.2))) };
+      else if (it.hold_sec && it.hold_sec < 3600) next = { ...cur, holdSec: Math.min(3600, it.hold_sec >= 60 ? it.hold_sec + 60 : it.hold_sec + 5) };
+      else if (it.sets < 5) next = { ...cur, sets: it.sets + 1 };
+      reason = `ทำได้ ${Math.round(doneRatio * 100)}% ของวันที่กำหนด ไม่รู้สึกยาก และปวดไม่เพิ่ม`;
+    } else if ((hardRatio >= 0.5 || painRise >= 2) && doneRatio < 0.6) {
+      type = 'regress';
+      if (it.reps && it.reps > 3) next = { ...cur, reps: Math.max(3, Math.round(it.reps * 0.7)) };
+      else if (it.hold_sec && it.hold_sec > 5) next = { ...cur, holdSec: Math.max(5, Math.round(it.hold_sec * 0.7)) };
+      else if (it.sets > 1) next = { ...cur, sets: it.sets - 1 };
+      reason = `ทำได้ ${Math.round(doneRatio * 100)}%${hardRatio >= 0.5 ? ` รู้สึกยาก ${Math.round(hardRatio * 100)}% ของวัน` : ''}${painRise >= 2 ? ` ปวดเฉลี่ยสูงกว่าตั้งต้น ${painRise.toFixed(1)}` : ''}`;
+    } else if (doneRatio < 0.3) {
+      type = 'review';
+      reason = `ทำได้เพียง ${Math.round(doneRatio * 100)}% ควรสอบถามผู้ป่วยว่าติดปัญหาอะไร (ไม่เข้าใจท่า เจ็บ หรือไม่มีเวลา)`;
+    }
+    if (type) items.push({ itemId: it.id, name: it.name_th, type, current: cur, proposed: next, reason, doneRatio: Math.round(doneRatio * 100) });
+  }
+  return { basis: { loggedDays: loggedDays.length, hardRatio: Math.round(hardRatio * 100), painAvg: painAvg == null ? null : Math.round(painAvg * 10) / 10, baseline }, items };
+}
+
+async function suggestions(id) {
+  return suggestFor(await programDetail(id, { days: 14 }));
+}
+
 async function acknowledgeAlert(id, userId, note) {
   const { rowCount } = await db.query(
     'UPDATE home_alerts SET acknowledged_by=$2, acknowledged_at=now(), ack_note=$3 WHERE id=$1 AND acknowledged_at IS NULL', [id, userId, note || null]);
@@ -375,4 +480,5 @@ async function acknowledgeAlert(id, userId, note) {
 module.exports = {
   RED_FLAGS, hashToken, bkkDate, listExercises, createProgram, updateProgram, endProgram, createLink, revokeLink,
   publicView, saveLog, programDetail, patientSummary, monitor, acknowledgeAlert, loadProgram,
+  saveCheckin, publicLineCode, suggestions, suggestFor,
 };
